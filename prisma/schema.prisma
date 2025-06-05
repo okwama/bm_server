@@ -1,0 +1,146 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(255)
+  email     String   @db.VarChar(255)
+  phone     String?  @db.VarChar(20)
+  address   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+}
+
+model Request {
+  id               Int         @id @default(autoincrement())
+  serviceTypeId    Int         @map("service_type_id")
+  clientId         Int         @map("client_id")
+  clientName       String      @map("client_name") @db.VarChar(255)
+  userId           Int         @map("user_id")
+  cashImageUrl String?   @map("cash_image_url") @db.VarChar(255)
+  userName         String      @map("user_name") @db.VarChar(100)
+  pickupLocation   String      @map("pickup_location") @db.VarChar(255)
+  deliveryLocation String      @map("delivery_location") @db.VarChar(255)
+  pickupDate       DateTime    @map("pickup_date")
+  description      String?
+  priority         Priority    @default(medium)
+  status           Status      @default(pending)
+  myStatus         Int         @map("my_status")
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @default(now()) @updatedAt @map("updated_at")
+  ServiceType      ServiceType @relation(fields: [serviceTypeId], references: [id])
+  Staff            Staff       @relation(fields: [userId], references: [id])
+
+  @@index([serviceTypeId], map: "requests_service_type_id_fkey")
+  @@index([userId], map: "requests_user_id_fkey")
+  @@map("requests")
+  CrewLocation CrewLocation[]
+  CashCount CashCount[]
+}
+
+model ServiceType {
+  id       Int       @id @default(autoincrement())
+  name     String    @db.VarChar(100)
+  status   Int       @default(0)
+  requests Request[]
+
+  @@map("service_types")
+}
+
+model Staff {
+  id                  Int               @id @default(autoincrement())
+  name               String            @db.VarChar(200)
+  phone              String?           @db.VarChar(20)
+  password           String?           @db.VarChar(255)
+  roleId             Int               @default(0) @map("role_id")
+  role               String            @db.VarChar(200)
+  emplNo             String            @unique @map("empl_no") @db.VarChar(100)
+  idNo               Int               @map("id_no")
+  photoUrl           String            @map("photo_url") @db.VarChar(200)
+  status             Int               @default(0)
+  created_at         DateTime          @default(now())
+  assignedTeamMembers Team_assignment[] @relation("StaffToTeamMembers")
+  assignedTo         Team_assignment[] @relation("TeamMemberToStaff")
+  requests           Request[]
+  CrewLocation CrewLocation[]
+  CashCount CashCount[]
+  @@map("staff")
+}
+model CashCount {
+  id               Int      @id @default(autoincrement())
+  fifties          Int
+  hundreds         Int
+  twoHundreds      Int
+  fiveHundreds     Int
+  thousands        Int
+  totalAmount      Int      @default(0)
+  sealNumber       String?
+  imagePath        String?
+  cashImageUrl String?   @map("image_url") @db.VarChar(255) // Ensure this is consistent with the existing field
+  staffId          Int?     @map("staff_id") // Optional: Link to Staff if needed
+  staff            Staff?    @relation(fields: [staffId], references: [id]) // Optional relation
+  createdAt        DateTime @default(now()) @map("created_at") // Added timestamp
+  requestId        Int?     @map("request_id") // Optional: Link to Request if needed
+  request          Request? @relation(fields: [requestId], references: [id]) // Optional relation
+  @@map("cash_counts")
+}
+model Team_assignment {
+  id           Int      @id @default(autoincrement())
+  staffId      Int
+  teamMemberId Int
+  assignedAt   DateTime @default(now())
+  staff        Staff    @relation("StaffToTeamMembers", fields: [staffId], references: [id])
+  teamMember   Staff    @relation("TeamMemberToStaff", fields: [teamMemberId], references: [id])
+
+  @@index([staffId], map: "TeamAssignment_staffId_fkey")
+  @@index([teamMemberId], map: "TeamAssignment_teamMemberId_fkey")
+}
+model CrewLocation {
+  id             Int       @id @default(autoincrement())
+  requestId      Int       @map("request_id")
+  staffId        Int       @map("staff_id") // Crew commander or whoever is reporting location
+  latitude       Float
+  longitude      Float
+  capturedAt     DateTime  @default(now()) @map("captured_at")
+
+  request        Request   @relation(fields: [requestId], references: [id])
+  staff          Staff     @relation(fields: [staffId], references: [id])
+
+  @@index([requestId], map: "crew_location_request_id_idx")
+  @@index([staffId], map: "crew_location_staff_id_idx")
+  @@map("crew_locations")
+}
+
+model users {
+  id         Int        @id @default(autoincrement())
+  username   String     @unique(map: "username") @db.VarChar(50)
+  password   String     @db.VarChar(255)
+  email      String     @unique(map: "email") @db.VarChar(100)
+  role       users_role @default(user)
+  created_at DateTime   @default(now())
+  updated_at DateTime   @default(now())
+}
+
+enum Priority {
+  low
+  medium
+  high
+}
+
+enum Status {
+  pending
+  in_progress
+  completed
+  cancelled
+}
+
+enum users_role {
+  admin
+  user
+}
