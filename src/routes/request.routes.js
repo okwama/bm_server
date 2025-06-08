@@ -10,7 +10,7 @@ router.get('/pending', auth.authenticate, requestController.getPendingRequests);
 router.get('/all', auth.authenticate, requestController.getAllStaffRequests);
 
 // Get confirmed pickup requests - MOVED THIS ROUTE BEFORE /:id
-router.get('/confirmed-pickups', auth.authenticate, requestController.getConfirmedPickup);
+router.get('/in-progress', auth.authenticate, requestController.inProgressRequests);
 
 // Get request details
 router.get('/:id', auth.authenticate, requestController.getRequestDetails);

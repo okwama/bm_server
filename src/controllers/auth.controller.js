@@ -5,31 +5,76 @@ const { validationResult } = require('express-validator');
 
 const login = async (req, res, next) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+    // Validate request body
+    if (!req.body) {
+      console.error('No request body provided');
+      return res.status(400).json({ message: 'Request body is required' });
     }
 
     const { emplNo, password } = req.body;
+    
+    // Input validation
+    if (!emplNo || !password) {
+      console.error('Missing required fields', { emplNo: !!emplNo, password: !!password });
+      return res.status(400).json({ 
+        message: 'Employee number and password are required' 
+      });
+    }
 
+    // Validate JWT_SECRET is set
+    if (!process.env.JWT_SECRET) {
+      console.error('JWT_SECRET is not configured');
+      return res.status(500).json({ message: 'Server configuration error' });
+    }
+
+    console.log(`Login attempt for employee: ${emplNo}`);
+    
+    // Find user by employee number
     const user = await prisma.staff.findFirst({
-      where: { emplNo }
+      where: { emplNo: emplNo.toString().trim() }
     });
 
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+    if (!user) {
+      console.warn(`Login failed: No user found with employee number ${emplNo}`);
+      return res.status(401).json({ 
+        message: 'Invalid credentials',
+        code: 'INVALID_CREDENTIALS'
+      });
     }
 
+
+    // Verify password
+    const isPasswordValid = await bcrypt.compare(password, user.password || '');
+    if (!isPasswordValid) {
+      console.warn(`Login failed: Invalid password for user ${user.id}`);
+      return res.status(401).json({ 
+        message: 'Invalid credentials',
+        code: 'INVALID_CREDENTIALS'
+      });
+    }
+
+    // Check user status
     if (user.status !== 1) {
-      return res.status(403).json({ message: 'User account is not active' });
+      console.warn(`Login failed: Inactive account for user ${user.id}`);
+      return res.status(403).json({ 
+        message: 'Your account is not active. Please contact an administrator.',
+        code: 'ACCOUNT_INACTIVE'
+      });
     }
 
+    // Generate JWT token
     const token = jwt.sign(
-      { userId: user.id, role: user.role },
+      { 
+        userId: user.id, 
+        role: user.role,
+        emplNo: user.emplNo,
+        name: user.name
+      },
       process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
 
+    // Prepare user data for response
     const userData = {
       id: user.id,
       name: user.name,
@@ -37,13 +82,17 @@ const login = async (req, res, next) => {
       role: user.role,
       roleId: user.roleId,
       idNo: user.idNo,
-      photoUrl: user.photoUrl,
+      photoUrl: user.photoUrl || '/default-avatar.png',
       status: user.status
     };
 
-    // Token sent in response
+    console.log(`Login successful for user: ${user.id} (${user.role})`);
+    
+    // Send success response
     res.json({ 
-      token,  // Client should store this
+      success: true,
+      message: 'Login successful',
+      token,
       user: userData 
     });
   } catch (error) {

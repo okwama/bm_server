@@ -21,22 +21,50 @@ const createLocation = async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const location = await prisma.crewLocation.create({
-      data: {
-        requestId: Number(requestId),
-        staffId: Number(staffId),
-        latitude,
-        longitude
-      }
+    // Use a transaction to ensure both operations succeed or fail together
+    const result = await prisma.$transaction(async (tx) => {
+      // Create the crew location record
+      const location = await tx.crewLocation.create({
+        data: {
+          requestId: Number(requestId),
+          staffId: Number(staffId),
+          latitude,
+          longitude
+        }
+      });
+
+      // Update the request with the most recent coordinates
+      const updatedRequest = await tx.request.update({
+        where: {
+          id: Number(requestId)
+        },
+        data: {
+          latitude,
+          longitude,
+          updatedAt: new Date() // Explicitly update the timestamp
+        }
+      });
+
+      return { location, updatedRequest };
     });
 
-    res.status(201).json(location);
+    console.log('✅ Location created and request updated successfully');
+    res.status(201).json({
+      location: result.location,
+      message: 'Location created and request updated successfully'
+    });
+
   } catch (err) {
     console.error('❌ Location error:', err);
+    
+    // Handle specific Prisma errors
+    if (err.code === 'P2025') {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    
     res.status(500).json({ error: 'Internal Server Error' });
   }
 };
-
 
 // GET /api/locations/:requestId
  const getLocationsByRequest = async (req, res) => {
