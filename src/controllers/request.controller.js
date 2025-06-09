@@ -335,10 +335,81 @@ const confirmPickup = async (req, res, next) => {
     });
   }
 };
+
+// Complete Delivery (Crew Commander)
 const confirmDelivery = async (req, res, next) => {
+  const t = await prisma.$transaction(async (prisma) => {
+    try {
+      const requestId = validateRequestId(req.params.id);
+      const { photoUrl, bankDetails, latitude, longitude, notes } = req.body;
+
+      // 1. Get the request
+      const request = await prisma.request.findUnique({
+        where: { id: requestId }
+      });
+
+      if (!request) {
+        throw new Error('Request not found');
+      }
+
+      // 2. Verify permissions
+      if (request.userId !== req.user.userId) {
+        throw new Error('Not authorized to complete this delivery');
+      }
+
+      if (request.status !== 'in_progress') {
+        throw new Error('Request is not in progress');
+      }
+
+      // 3. Create delivery completion record
+      const deliveryCompletion = await prisma.delivery_completion.create({
+        data: {
+          requestId,
+          completedById: req.user.id,
+          completedByName: req.user.name,
+          photoUrl,
+          bankDetails,
+          latitude,
+          longitude,
+          sealNumber: request.sealNumber, // Assuming sealNumber is in request
+          status: 'completed',
+          isVaultOfficer: false
+        }
+      });
+
+      // 4. Update request status
+      const updatedRequest = await prisma.request.update({
+        where: { id: requestId },
+        data: {
+          status: 'completed',
+          myStatus: 3,
+          updatedAt: new Date()
+        }
+      });
+
+      return { request: updatedRequest, deliveryCompletion };
+    } catch (error) {
+      throw error;
+    }
+  });
+
+  try {
+    res.json(t.request);
+  } catch (error) {
+    if (error.message === 'Invalid request ID') {
+      return res.status(400).json({ message: error.message });
+    }
+    next(error);
+  }
+};
+
+// Assign to Vault Officer
+const assignToVaultOfficer = async (req, res, next) => {
   try {
     const requestId = validateRequestId(req.params.id);
+    const { vaultOfficerId, vaultOfficerName } = req.body;
 
+    // 1. Get the request
     const request = await prisma.request.findUnique({
       where: { id: requestId }
     });
@@ -347,19 +418,18 @@ const confirmDelivery = async (req, res, next) => {
       return res.status(404).json({ message: 'Request not found' });
     }
 
+    // 2. Verify requester is authorized (e.g., team leader)
     if (request.userId !== req.user.userId) {
-      return res.status(403).json({ message: 'Not authorized to confirm this delivery' });
+      return res.status(403).json({ message: 'Not authorized to assign this request' });
     }
 
-    if (request.status !== 'in_progress') {
-      return res.status(400).json({ message: 'Request is not in progress' });
-    }
-
+    // 3. Update request with vault officer assignment
     const updatedRequest = await prisma.request.update({
       where: { id: requestId },
       data: {
-        status: 'completed',
-        myStatus: 2 // Assuming 2 means delivered
+        MyStaffId: vaultOfficerId,
+        MyStaffName: vaultOfficerName,
+        updatedAt: new Date()
       }
     });
 
@@ -372,95 +442,85 @@ const confirmDelivery = async (req, res, next) => {
   }
 };
 
-// const inProgressRequests = async (req, res, next) => {
-//   try {
-//     console.log('Staff ID:', req.user.id);
-    
-//     // Query for in-progress requests with branch and client information
-//     const requests = await prisma.request.findMany({
-//       where: {
-//         OR: [
-//           { MyStaffId: req.user.id },
-//           { team_id: req.user.team_id }
-//         ],
-//         OR: [
-//           { status: 'in_progress' },
-//           { myStatus: 2 }
-//         ]
-//       },
-//       include: {
-//         ServiceType: {
-//           select: {
-//             name: true
-//           }
-//         },
-//         branches: {
-//           include: {
-//             clients: {
-//               select: {
-//                 id: true,
-//                 name: true,
-//                 email: true,
-//                 phone: true
-//               }
-//             }
-//           }
-//         },
-//         Staff: {
-//           select: {
-//             id: true,
-//             name: true,
-//             email: true
-//           }
-//         }
-//       },
-//       orderBy: {
-//         createdAt: 'desc'
-//       }
-//     });
+// Vault Officer Complete Delivery
+const completeVaultDelivery = async (req, res, next) => {
+  const t = await prisma.$transaction(async (prisma) => {
+    try {
+      const requestId = validateRequestId(req.params.id);
+      const { photoUrl, bankDetails, latitude, longitude, notes } = req.body;
 
-//     // Format the response
-//     const formattedRequests = requests.map(request => ({
-//       id: request.id,
-//       pickupLocation: request.pickupLocation,
-//       deliveryLocation: request.deliveryLocation,
-//       status: request.status,
-//       priority: request.priority,
-//       pickupDate: formatDate(request.pickupDate),
-//       createdAt: formatDate(request.createdAt),
-//       myStatus: request.myStatus,
-//       serviceType: request.ServiceType?.name || 'Not provided',
-//       branch: request.branches ? {
-//         id: request.branches.id,
-//         name: request.branches.name,
-//         address: request.branches.address,
-//         phone: request.branches.phone,
-//         email: request.branches.email
-//       } : null,
-//       client: request.branches?.clients ? {
-//         id: request.branches.clients.id,
-//         name: request.branches.clients.name,
-//         email: request.branches.clients.email,
-//         phone: request.branches.clients.phone
-//       } : null,
-//       staff: request.Staff ? {
-//         id: request.Staff.id,
-//         name: request.Staff.name,
-//         email: request.Staff.email
-//       } : null
-//     }));
+      // 1. Get the request
+      const request = await prisma.request.findUnique({
+        where: { id: requestId },
+        include: { delivery_completion: true }
+      });
 
-//     res.json({
-//       success: true,
-//       count: formattedRequests.length,
-//       data: formattedRequests
-//     });
-//   } catch (error) {
-//     console.error('Error in inProgressRequests:', error);
-//     next(error);
-//   }
-// };
+      if (!request) {
+        throw new Error('Request not found');
+      }
 
+      // 2. Verify vault officer is assigned to this request
+      if (request.MyStaffId !== req.user.id) {
+        throw new Error('Not authorized to complete this delivery');
+      }
+
+      // 3. Create or update delivery completion record
+      const deliveryCompletion = request.delivery_completion
+        ? await prisma.delivery_completion.update({
+            where: { requestId },
+            data: {
+              completedById: req.user.id,
+              completedByName: req.user.name,
+              photoUrl,
+              bankDetails,
+              latitude,
+              longitude,
+              sealNumber: request.sealNumber,
+              status: 'completed',
+              isVaultOfficer: true,
+              updatedAt: new Date()
+            }
+          })
+        : await prisma.delivery_completion.create({
+            data: {
+              requestId,
+              completedById: req.user.id,
+              completedByName: req.user.name,
+              photoUrl,
+              bankDetails,
+              latitude,
+              longitude,
+              sealNumber: request.sealNumber,
+              status: 'completed',
+              isVaultOfficer: true
+            }
+          });
+
+      // 4. Update request status
+      const updatedRequest = await prisma.request.update({
+        where: { id: requestId },
+        data: {
+          status: 'completed',
+          myStatus: 3, // Or a new status code for vault-completed
+          updatedAt: new Date()
+        }
+      });
+
+      return { request: updatedRequest, deliveryCompletion };
+    } catch (error) {
+      throw error;
+    }
+  });
+
+  try {
+    res.json(t.request);
+  } catch (error) {
+    if (error.message === 'Invalid request ID') {
+      return res.status(400).json({ message: error.message });
+    }
+    next(error);
+  }
+};
 
 const inProgressRequests = async (req, res, next) => {
   try {
@@ -579,5 +639,7 @@ module.exports = {
   confirmPickup,
   confirmDelivery,
   getAllStaffRequests,
-  inProgressRequests 
+  inProgressRequests,
+  assignToVaultOfficer,
+  completeVaultDelivery
 };

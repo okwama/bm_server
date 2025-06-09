@@ -39,16 +39,18 @@ model Request {
   @@index([MyStaffId], map: "staff_id")
   @@index([branchId], map: "requests_branch_id_fkey")
   @@map("requests")
+  delivery_completion delivery_completion[]
 }
 
 model ServiceType {
-  id              Int               @id @default(autoincrement())
-  name            String            @db.VarChar(100)
-  description     String?           @db.Text
-  created_at      DateTime          @default(now()) @db.Timestamp(0)
-  updated_at      DateTime          @default(now()) @db.Timestamp(0)
-  requests        Request[]
-  service_charges service_charges[]
+  id               Int                @id @default(autoincrement())
+  name             String             @db.VarChar(100)
+  description      String?            @db.Text
+  created_at       DateTime           @default(now()) @db.Timestamp(0)
+  updated_at       DateTime           @default(now()) @db.Timestamp(0)
+  requests         Request[]
+  service_charges  service_charges[]
+  service_requests service_requests[]
 
   @@map("service_types")
 }
@@ -167,31 +169,48 @@ model teams {
 }
 
 model branches {
-  id         Int       @id @default(autoincrement())
-  client_id  Int
-  name       String    @db.VarChar(255)
-  address    String?   @db.Text
-  phone      String?   @db.VarChar(20)
-  email      String?   @db.VarChar(255)
-  created_at DateTime  @default(now()) @db.Timestamp(0)
-  updated_at DateTime  @default(now()) @db.Timestamp(0)
-  clients    clients   @relation(fields: [client_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "branches_ibfk_1")
-  requests   Request[] @relation("RequestBranch")
+  id               Int                @id @default(autoincrement())
+  client_id        Int
+  name             String             @db.VarChar(255)
+  address          String?            @db.Text
+  phone            String?            @db.VarChar(20)
+  email            String?            @db.VarChar(255)
+  contact_person   String?            @db.VarChar(100)
+  created_at       DateTime           @default(now()) @db.Timestamp(0)
+  updated_at       DateTime           @default(now()) @db.Timestamp(0)
+  clients          clients            @relation(fields: [client_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "branches_ibfk_1")
+  requests         Request[]          @relation("RequestBranch")
+  service_requests service_requests[]
 
   @@index([client_id], map: "client_id")
 }
-
+model delivery_completion {
+  id              Int       @id @default(autoincrement())
+  requestId       Int       @unique
+  request         Request   @relation(fields: [requestId], references: [id])
+  completedById   Int       // Staff ID who completed
+  completedByName String    // Staff name for quick reference
+  completedAt     DateTime  @default(now())
+  photoUrl        String?   // URL to uploaded photo
+  bankDetails     Json?     // Store bank details as JSON
+  latitude        Float?
+  longitude       Float?
+  sealNumber      String?
+  status          Status @default(pending)
+  isVaultOfficer  Boolean   @default(false) // To track if completed by Vault Officer
+}
 model clients {
-  id              Int               @id @default(autoincrement())
-  name            String            @db.VarChar(255)
-  account_number  String            @unique(map: "account_number") @db.VarChar(50)
-  email           String            @db.VarChar(255)
-  phone           String?           @db.VarChar(20)
-  address         String?           @db.Text
-  created_at      DateTime          @default(now()) @db.Timestamp(0)
-  updated_at      DateTime          @default(now()) @db.Timestamp(0)
-  branches        branches[]
-  service_charges service_charges[]
+  id               Int                @id @default(autoincrement())
+  name             String             @db.VarChar(255)
+  account_number   String             @unique(map: "account_number") @db.VarChar(50)
+  email            String             @db.VarChar(255)
+  phone            String?            @db.VarChar(20)
+  address          String?            @db.Text
+  created_at       DateTime           @default(now()) @db.Timestamp(0)
+  updated_at       DateTime           @default(now()) @db.Timestamp(0)
+  branches         branches[]
+  service_charges  service_charges[]
+  service_requests service_requests[]
 }
 
 model service_charges {
@@ -204,6 +223,27 @@ model service_charges {
   clients         clients     @relation(fields: [client_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "service_charges_ibfk_1")
   service_types   ServiceType @relation(fields: [service_type_id], references: [id], onUpdate: Restrict, map: "service_charges_ibfk_2")
 
+  @@index([client_id], map: "client_id")
+  @@index([service_type_id], map: "service_type_id")
+}
+
+model service_requests {
+  id               Int                     @id @default(autoincrement())
+  client_id        Int
+  branch_id        Int
+  service_type_id  Int
+  pickup_location  String                  @db.Text
+  dropoff_location String                  @db.Text
+  pickup_date      DateTime                @db.Date
+  pickup_time      DateTime                @db.Time(0)
+  status           service_requests_status @default(pending)
+  created_at       DateTime                @default(now()) @db.Timestamp(0)
+  updated_at       DateTime                @default(now()) @db.Timestamp(0)
+  clients          clients                 @relation(fields: [client_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "service_requests_ibfk_1")
+  branches         branches                @relation(fields: [branch_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "service_requests_ibfk_2")
+  service_types    ServiceType             @relation(fields: [service_type_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "service_requests_ibfk_3")
+
+  @@index([branch_id], map: "branch_id")
   @@index([client_id], map: "client_id")
   @@index([service_type_id], map: "service_type_id")
 }
@@ -224,4 +264,11 @@ enum Status {
 enum users_role {
   admin
   user
+}
+
+enum service_requests_status {
+  pending
+  in_progress
+  completed
+  cancelled
 }
