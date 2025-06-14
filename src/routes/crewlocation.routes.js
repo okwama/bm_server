@@ -1,9 +1,11 @@
-import express from 'express';
-import { createLocation, getLocationsByRequest } from './crewLocation.controller';
-
+const express = require('express');
 const router = express.Router();
+const { createLocation, getLocationsByRequest } = require('../controllers/crewlocation.controller');
 
-router.post('/locations', createLocation);
-router.get('/locations/:requestId', getLocationsByRequest);
+// POST location
+router.post('/location', createLocation);
 
-export default router;
+// GET locations by request ID
+router.get('/location/:requestId', getLocationsByRequest);
+
+module.exports = router;

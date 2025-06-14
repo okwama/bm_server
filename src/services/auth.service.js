@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const prisma = require('../config/db');
 const { STAFF_ROLES } = require('../constants');
 
-const generateToken = (user) => {
+const generatetoken = (user) => {
   return jwt.sign(
     {
       id: user.id,
@@ -49,7 +49,7 @@ exports.loginStaff = async (email, password) => {
   }
 
   return {
-    token: generateToken(staff),
+    token: generatetoken(staff),
     staff: {
       id: staff.id,
       name: staff.name,

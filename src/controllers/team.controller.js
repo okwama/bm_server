@@ -1,23 +1,25 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-const getAssignedStaff = async (req, res) => {
+const getTeamById = async (req, res) => {
   try {
-    const staffId = parseInt(req.user.id);
-    if (!staffId || isNaN(staffId)) {
-      return res.status(400).json({ message: 'Invalid staff ID' });
+    const teamId = parseInt(req.params.id);
+    
+    if (isNaN(teamId)) {
+      return res.status(400).json({ 
+        message: 'Invalid team ID. Please provide a valid number.' 
+      });
     }
 
-    const staffWithTeam = await prisma.staff.findUnique({
-      where: { id: staffId },
+    const team = await prisma.teams.findUnique({
+      where: { id: teamId },
       include: {
-        assignedTeamMembers: {
+        team_members: {
           include: {
-            teamMember: {
+            staff: {
               select: {
                 id: true,
                 name: true,
-                phone: true,
                 role: true,
                 emplNo: true,
                 photoUrl: true,
@@ -27,29 +29,83 @@ const getAssignedStaff = async (req, res) => {
         }
       }
     });
+    
+    if (!team) {
+      return res.status(404).json({ message: 'Team not found' });
+    }
+    
+    res.status(200).json({ team });
+  } catch (error) {
+    console.error('Error fetching team:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
 
-    if (!staffWithTeam) {
-      return res.status(404).json({ message: 'Staff not found' });
+const getMyTeam = async (req, res) => {
+  try {
+    const staffId = parseInt(req.user.userId);
+    console.log('[getMyTeam] staffId:', staffId);
+    if (!staffId || isNaN(staffId)) {
+      console.log('[getMyTeam] Invalid staff ID');
+      return res.status(400).json({ message: 'Invalid staff ID' });
     }
 
-    if (staffWithTeam.assignedTeamMembers.length === 0) {
-      return res.status(200).json({ assignedStaff: [], message: 'No team members assigned' });
+    const today = new Date();
+    const latestMembership = await prisma.team_members.findFirst({
+      where: {
+        staff_id: staffId,
+        created_at: { lte: today }
+      },
+      orderBy: { created_at: 'desc' }
+    });
+    console.log('[getMyTeam] latestMembership:', latestMembership);
+
+    if (!latestMembership) {
+      console.log('[getMyTeam] No team found for user');
+      return res.status(200).json({ assignedStaff: [], message: 'No team found for today' });
     }
 
-    const assignedStaff = staffWithTeam.assignedTeamMembers.map(assignment => ({
-      ...assignment.teamMember,
-      assignedAt: assignment.assignedAt
+    const teamMembers = await prisma.team_members.findMany({
+      where: {
+        team_id: latestMembership.team_id,
+        created_at: { lte: today }
+      },
+      include: {
+        staff: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            role: true,
+            emplNo: true,
+            photoUrl: true,
+          }
+        },
+        teams: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
+    });
+    console.log('[getMyTeam] teamMembers:', teamMembers);
+
+    const assignedStaff = teamMembers.map(member => ({
+      ...member.staff,
+      teamName: member.teams.name,
+      assignedAt: member.created_at
     }));
+    console.log('[getMyTeam] assignedStaff:', assignedStaff);
 
     res.status(200).json({ assignedStaff });
   } catch (error) {
-    console.error('Error fetching assigned staff:', error);
+    console.error('Error fetching team members:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 };
 
 module.exports = {
-  getAssignedStaff: (req, res, next) => {
-    getAssignedStaff(req, res).catch(next);
-  }
+  getMyTeam,
+  getTeamById
 };

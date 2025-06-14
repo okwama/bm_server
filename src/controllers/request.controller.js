@@ -14,38 +14,24 @@ const formatDate = (dateString) => {
   }
 };
 
-const validateRequestId = (id) => {
-  const requestId = parseInt(id);
-  if (isNaN(requestId)) {
-    throw new Error('Invalid request ID');
-  }
-  return requestId;
-};
-
 const getPendingRequests = async (req, res, next) => {
   try {
+    console.log('=== getPendingRequests Debug Logs ===');
+    console.log('User making request:', {
+      userId: req.user.userId
+    });
+
+    const whereCondition = {
+      myStatus: 1,
+      staff_id: req.user.userId
+    };
+
+    console.log('whereCondition:', JSON.stringify(whereCondition, null, 2));
+
     const rawRequests = await prisma.request.findMany({
-      where: {
-        OR: [
-          { userId: req.user.userId },  // Requests created by this user
-          { MyStaffId: req.user.userId }  // Requests assigned to this user
-        ],
-        status: 'pending',
-        AND: [
-          { createdAt: { not: undefined } },
-          { createdAt: { gt: new Date(0) } }
-        ]
-      },
-      select: {    
-        MyStaff: {  // Include assigned staff
-          select: {
-            id: true,
-            name: true,
-            phone: true
-          }
-        },
+      where: whereCondition,
+      select: {
         id: true,
-        // clientName: false,
         pickupLocation: true,
         deliveryLocation: true,
         status: true,
@@ -57,23 +43,39 @@ const getPendingRequests = async (req, res, next) => {
             id: true,
             name: true
           }
+        },
+        staff: {
+          select: {
+            id: true,
+            name: true,
+            role: true
+          }
         }
       }
     });
 
+    console.log('Number of requests found:', rawRequests.length);
+
     const formattedRequests = rawRequests.map(request => ({
-      ...request, 
+      ...request,
       pickupDate: formatDate(request.pickupDate),
       createdAt: formatDate(request.createdAt),
       ServiceType: request.ServiceType?.name || 'Not provided',
       serviceTypeId: request.ServiceType?.id || 0,
     }));
 
+    console.log('=== End getPendingRequests Debug Logs ===');
     res.json(formattedRequests);
   } catch (error) {
+    console.error('Error in getPendingRequests:', {
+      message: error.message,
+      stack: error.stack,
+      user: req.user
+    });
     next(error);
   }
 };
+
 
 const getAllStaffRequests = async (req, res, next) => {
   try {
@@ -108,7 +110,10 @@ const getAllStaffRequests = async (req, res, next) => {
 
 const getRequestDetails = async (req, res, next) => {
   try {
-    const requestId = validateRequestId(req.params.id);
+    const requestId = parseInt(req.params.id);
+    if (isNaN(requestId)) {
+      return res.status(400).json({ message: 'Invalid request ID' });
+    }
 
     const request = await prisma.request.findUnique({
       where: {
@@ -117,7 +122,6 @@ const getRequestDetails = async (req, res, next) => {
       include: {
         Staff: {
           select: {
-            name: true,
             role: true
           }
         },
@@ -159,21 +163,20 @@ function calculateTotalAmount(cashCount) {
   if (!cashCount) return 0;
   
   return (
-    (cashCount.ones || 0) * 1 +
-    (cashCount.fives || 0) * 5 +
-    (cashCount.tens || 0) * 10 +
-    (cashCount.twenties || 0) * 20 +
-    (cashCount.forties || 0) * 40 +
-    (cashCount.fifties || 0) * 50 +
-    (cashCount.hundreds || 0) * 100 +
-    (cashCount.twoHundreds || 0) * 200 +
-    (cashCount.fiveHundreds || 0) * 500 +
-    (cashCount.thousands || 0) * 1000
+    (cashCount.ones ?? 0) * 1 +
+    (cashCount.fives ?? 0) * 5 +
+    (cashCount.tens ?? 0) * 10 +
+    (cashCount.twenties ?? 0) * 20 +
+    (cashCount.forties ?? 0) * 40 +
+    (cashCount.fifties ?? 0) * 50 +
+    (cashCount.hundreds ?? 0) * 100 +
+    (cashCount.twoHundreds ?? 0) * 200 +
+    (cashCount.fiveHundreds ?? 0) * 500 +
+    (cashCount.thousands ?? 0) * 1000
   );
 }
 
 const confirmPickup = async (req, res, next) => {
-  // Set longer timeout for this endpoint
   req.setTimeout(60000); // 60 seconds
   
   try {
@@ -185,7 +188,11 @@ const confirmPickup = async (req, res, next) => {
        });
     }
  
-    const requestId = validateRequestId(req.params.id);
+    const requestId = parseInt(req.params.id);
+    if (isNaN(requestId)) {
+      return res.status(400).json({ message: 'Invalid request ID' });
+    }
+
     const { cashCount, imageUrl } = req.body;
  
     console.log('Starting confirmPickup transaction for request:', requestId);
@@ -220,13 +227,35 @@ const confirmPickup = async (req, res, next) => {
       if (request.status !== 'pending') {
         throw new Error('Request is not in pending status');
       }
+
+      // Validate cash count if provided
+      if (cashCount) {
+        const denominations = ['ones', 'fives', 'tens', 'twenties', 'forties', 
+                             'fifties', 'hundreds', 'twoHundreds', 'fiveHundreds', 'thousands'];
+        
+        for (const denom of denominations) {
+          const value = cashCount[denom] ?? 0; // Default to 0 if not provided
+          if (typeof value !== 'number' || value < 0) {
+            throw new Error(`Invalid ${denom} value: ${value}. Must be non-negative.`);
+          }
+        }
+      }
+
+      // Validate image URL if provided
+      if (imageUrl) {
+        try {
+          new URL(imageUrl);
+        } catch (e) {
+          throw new Error('Invalid image URL format');
+        }
+      }
  
       // Update request status first
       const updatedRequest = await tx.request.update({
         where: { id: requestId },
         data: {
           status: 'in_progress',
-          myStatus: 2, // 1 means picked up
+          myStatus: 2, // 2 means picked up
           updatedAt: new Date()
         },
         include: {
@@ -240,29 +269,29 @@ const confirmPickup = async (req, res, next) => {
  
       let cashCountRecord = null;
       // For BSS service (ID: 2), create cash count record if provided
-      if (request.ServiceType.id === 2 && cashCount) {
+      if (request.ServiceType.id === 2 || request.ServiceType.id === 3 || request.ServiceType.id === 4 && cashCount) {
         try {
           const totalAmount = calculateTotalAmount(cashCount);
           console.log('Creating cash count record with total:', totalAmount);
           
-          cashCountRecord = await tx.cashCount.create({
+          cashCountRecord = await tx.cash_counts.create({
             data: {
-              ones: cashCount.ones || 0,
-              fives: cashCount.fives || 0,
-              tens: cashCount.tens || 0,
-              twenties: cashCount.twenties || 0,
-              forties: cashCount.forties || 0,
-              fifties: cashCount.fifties || 0,
-              hundreds: cashCount.hundreds || 0,
-              twoHundreds: cashCount.twoHundreds || 0,
-              fiveHundreds: cashCount.fiveHundreds || 0,
-              thousands: cashCount.thousands || 0,
+              ones: cashCount.ones ?? 0,
+              fives: cashCount.fives ?? 0,
+              tens: cashCount.tens ?? 0,
+              twenties: cashCount.twenties ?? 0,
+              forties: cashCount.forties ?? 0,
+              fifties: cashCount.fifties ?? 0,
+              hundreds: cashCount.hundreds ?? 0,
+              twoHundreds: cashCount.twoHundreds ?? 0,
+              fiveHundreds: cashCount.fiveHundreds ?? 0,
+              thousands: cashCount.thousands ?? 0,
               totalAmount: totalAmount,
               sealNumber: cashCount.sealNumber || null,
               image_url: imageUrl || null,
-              requestId: requestId,
-              staffId: req.user.userId,
-              createdAt: new Date()
+              request_id: requestId,
+              staff_id: req.user.userId,
+              created_at: new Date()
             }
           });
           
@@ -319,6 +348,9 @@ const confirmPickup = async (req, res, next) => {
     } else if (error.message === 'Request is not in pending status') {
       statusCode = 400;
       message = error.message;
+    } else if (error.message.includes('Invalid') || error.message.includes('Invalid image URL')) {
+      statusCode = 400;
+      message = error.message;
     } else if (error.message.includes('Timeout')) {
       statusCode = 408;
       message = 'Request timeout - operation may have completed successfully';
@@ -338,47 +370,101 @@ const confirmPickup = async (req, res, next) => {
 
 // Complete Delivery (Crew Commander)
 const confirmDelivery = async (req, res, next) => {
-  const t = await prisma.$transaction(async (prisma) => {
-    try {
-      const requestId = validateRequestId(req.params.id);
-      const { photoUrl, bankDetails, latitude, longitude, notes } = req.body;
+  try {
+    console.log('=== Starting Delivery Confirmation ===');
+    console.log('Request params:', req.params);
+    console.log('Request body:', req.body);
+    console.log('User:', req.user);
 
+    const requestId = parseInt(req.params.id);
+    if (isNaN(requestId)) {
+      return res.status(400).json({ message: 'Invalid request ID' });
+    }
+
+    const { bankDetails, latitude, longitude, notes } = req.body;
+
+    // Validate required fields
+    if (!latitude || !longitude) {
+      console.log('Missing required location data');
+      return res.status(400).json({ 
+        success: false,
+        message: 'Location data (latitude and longitude) is required' 
+      });
+    }
+
+    console.log('Starting transaction for request:', requestId);
+
+    // Start transaction
+    const result = await prisma.$transaction(async (tx) => {
       // 1. Get the request
-      const request = await prisma.request.findUnique({
+      const request = await tx.request.findUnique({
         where: { id: requestId }
       });
+
+      console.log('Found request:', request);
 
       if (!request) {
         throw new Error('Request not found');
       }
 
-      // 2. Verify permissions
-      if (request.userId !== req.user.userId) {
+      // 2. Verify permissions - check if current user is the assigned staff
+      if (request.staff_id !== req.user.userId) {
+        console.log('Permission denied:', {
+          requestStaffId: request.staff_id,
+          currentUserId: req.user.userId
+        });
         throw new Error('Not authorized to complete this delivery');
       }
 
       if (request.status !== 'in_progress') {
+        console.log('Invalid request status:', request.status);
         throw new Error('Request is not in progress');
       }
 
-      // 3. Create delivery completion record
-      const deliveryCompletion = await prisma.delivery_completion.create({
-        data: {
-          requestId,
-          completedById: req.user.id,
-          completedByName: req.user.name,
-          photoUrl,
-          bankDetails,
-          latitude,
-          longitude,
-          sealNumber: request.sealNumber, // Assuming sealNumber is in request
-          status: 'completed',
-          isVaultOfficer: false
-        }
+      console.log('Creating delivery completion record');
+
+      // 3. Upsert delivery completion record
+      let deliveryCompletion;
+      const existing = await tx.delivery_completion.findUnique({
+        where: { requestId }
       });
 
+      if (existing) {
+        // Update the existing record
+        deliveryCompletion = await tx.delivery_completion.update({
+          where: { requestId },
+          data: {
+            completedById: req.user.userId,
+            completedByName: req.user.name,
+            bankDetails,
+            latitude,
+            longitude,
+            status: 'completed',
+            isVaultOfficer: false,
+            notes,
+            completedAt: new Date()
+          }
+        });
+      } else {
+        // Create a new record
+        deliveryCompletion = await tx.delivery_completion.create({
+          data: {
+            requestId,
+            completedById: req.user.userId,
+            completedByName: req.user.name,
+            bankDetails,
+            latitude,
+            longitude,
+            status: 'completed',
+            isVaultOfficer: false,
+            notes,
+            completedAt: new Date()
+          }
+        });
+      }
+
       // 4. Update request status
-      const updatedRequest = await prisma.request.update({
+      const updatedRequest = await tx.request.update({
         where: { id: requestId },
         data: {
           status: 'completed',
@@ -387,26 +473,60 @@ const confirmDelivery = async (req, res, next) => {
         }
       });
 
-      return { request: updatedRequest, deliveryCompletion };
-    } catch (error) {
-      throw error;
-    }
-  });
+      console.log('Request status updated:', updatedRequest);
 
-  try {
-    res.json(t.request);
+      return { request: updatedRequest, deliveryCompletion };
+    });
+
+    console.log('Transaction completed successfully');
+
+    // Send success response
+    res.status(200).json({
+      success: true,
+      data: result.request,
+      deliveryCompletion: result.deliveryCompletion
+    });
+
   } catch (error) {
+    console.error('=== Delivery Confirmation Error ===');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.error('Stack trace:', error.stack);
+    
+    let statusCode = 500;
+    let message = 'Error completing delivery';
+
     if (error.message === 'Invalid request ID') {
-      return res.status(400).json({ message: error.message });
+      statusCode = 400;
+      message = error.message;
+    } else if (error.message === 'Request not found') {
+      statusCode = 404;
+      message = error.message;
+    } else if (error.message === 'Not authorized to complete this delivery') {
+      statusCode = 403;
+      message = error.message;
+    } else if (error.message === 'Request is not in progress') {
+      statusCode = 400;
+      message = error.message;
     }
-    next(error);
+
+    res.status(statusCode).json({
+      success: false,
+      message,
+      requestId: req.params.id,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };
 
 // Assign to Vault Officer
 const assignToVaultOfficer = async (req, res, next) => {
   try {
-    const requestId = validateRequestId(req.params.id);
+    const requestId = parseInt(req.params.id);
+    if (isNaN(requestId)) {
+      return res.status(400).json({ message: 'Invalid request ID' });
+    }
+
     const { vaultOfficerId, vaultOfficerName } = req.body;
 
     // 1. Get the request
@@ -442,135 +562,44 @@ const assignToVaultOfficer = async (req, res, next) => {
   }
 };
 
-// Vault Officer Complete Delivery
-const completeVaultDelivery = async (req, res, next) => {
-  const t = await prisma.$transaction(async (prisma) => {
-    try {
-      const requestId = validateRequestId(req.params.id);
-      const { photoUrl, bankDetails, latitude, longitude, notes } = req.body;
-
-      // 1. Get the request
-      const request = await prisma.request.findUnique({
-        where: { id: requestId },
-        include: { delivery_completion: true }
-      });
-
-      if (!request) {
-        throw new Error('Request not found');
-      }
-
-      // 2. Verify vault officer is assigned to this request
-      if (request.MyStaffId !== req.user.id) {
-        throw new Error('Not authorized to complete this delivery');
-      }
-
-      // 3. Create or update delivery completion record
-      const deliveryCompletion = request.delivery_completion
-        ? await prisma.delivery_completion.update({
-            where: { requestId },
-            data: {
-              completedById: req.user.id,
-              completedByName: req.user.name,
-              photoUrl,
-              bankDetails,
-              latitude,
-              longitude,
-              sealNumber: request.sealNumber,
-              status: 'completed',
-              isVaultOfficer: true,
-              updatedAt: new Date()
-            }
-          })
-        : await prisma.delivery_completion.create({
-            data: {
-              requestId,
-              completedById: req.user.id,
-              completedByName: req.user.name,
-              photoUrl,
-              bankDetails,
-              latitude,
-              longitude,
-              sealNumber: request.sealNumber,
-              status: 'completed',
-              isVaultOfficer: true
-            }
-          });
-
-      // 4. Update request status
-      const updatedRequest = await prisma.request.update({
-        where: { id: requestId },
-        data: {
-          status: 'completed',
-          myStatus: 3, // Or a new status code for vault-completed
-          updatedAt: new Date()
-        }
-      });
-
-      return { request: updatedRequest, deliveryCompletion };
-    } catch (error) {
-      throw error;
-    }
-  });
-
-  try {
-    res.json(t.request);
-  } catch (error) {
-    if (error.message === 'Invalid request ID') {
-      return res.status(400).json({ message: error.message });
-    }
-    next(error);
-  }
-};
-
+// Get in-progress requests
 const inProgressRequests = async (req, res, next) => {
   try {
     console.log('User making request:', req.user);
-    
-    // Build the where condition
-    const whereCondition = {
-      OR: [
-        { status: 'in_progress' },
-        { myStatus: 2 }
-      ]
-    };
+    const userId = req.user.userId;
 
-    // Add staff/team conditions if available
-    if (req.user.id || req.user.team_id) {
-      const staffTeamConditions = [];
-      if (req.user.id) staffTeamConditions.push({ MyStaffId: req.user.id });
-      if (req.user.team_id) staffTeamConditions.push({ team_id: req.user.team_id });
-      
-      if (staffTeamConditions.length > 0) {
-        whereCondition.AND = [{ OR: staffTeamConditions }];
-      }
-    }
+    // Simplified: Only fetch in-progress requests assigned to the user
+    const whereCondition = {
+      status: 'in_progress',
+      myStatus: 2,
+      staff_id: userId
+    };
 
     console.log('Query conditions:', JSON.stringify(whereCondition, null, 2));
 
-    // Get the requests with relationships
     const requests = await prisma.request.findMany({
       where: whereCondition,
       include: {
         ServiceType: {
-          select: { name: true }
+          select: {
+            name: true
+          }
         },
-        branch: {
-          include: {
+        branches: {
+          select: {
+            name: true,
             clients: {
               select: {
-                id: true,
-                name: true,
-                email: true,
-                phone: true
+                name: true
               }
             }
           }
         },
-        Staff: {
+        staff: {
           select: {
             id: true,
-            username: true,
-            email: true
+            name: true,
+            role: true
           }
         }
       },
@@ -578,54 +607,28 @@ const inProgressRequests = async (req, res, next) => {
         createdAt: 'desc'
       }
     });
-    
-    console.log('Fetched requests with branch data:', JSON.stringify(requests, null, 2));
 
-    console.log(`Found ${requests.length} requests`);
+    console.log('Found requests:', requests.length);
 
-    // Format the response
-    const formattedRequests = requests.map(request => {
-      const response = {
-        id: request.id,
-        pickupLocation: request.pickupLocation,
-        deliveryLocation: request.deliveryLocation,  // Keep for backward compatibility
-        dropOffLocation: request.deliveryLocation,  // Add for Flutter app compatibility
-        status: request.status,
-        priority: request.priority,
-        pickupDate: formatDate(request.pickupDate),
-        createdAt: formatDate(request.createdAt),
-        myStatus: request.myStatus,
-        serviceType: request.ServiceType?.name || 'Not provided',
-        branch: null,
-        client: null,
-        staff: null
-      };
+    const formattedRequests = requests.map(request => ({
+      id: request.id,
+      pickupLocation: request.pickupLocation,
+      deliveryLocation: request.deliveryLocation,
+      status: request.status,
+      priority: request.priority,
+      myStatus: request.myStatus,
+      branch: request.branches ? {
+        name: request.branches.name,
+        client: request.branches.clients?.name
+      } : null,
+      serviceType: request.ServiceType?.name,
+      assignedStaff: request.staff?.map(staff => ({
+        id: staff.id,
+        name: staff.name,
+        role: staff.role
+      }))
+    }));
 
-      // Add branch and client info if available
-      if (request.branch) {
-        response.branch = {
-          id: request.branch.id,
-          name: request.branch.name,
-          address: request.branch.address || null,
-          phone: request.branch.phone || null,
-          email: request.branch.email || null
-        };
-
-        if (request.branch.clients) {
-          response.client = {
-            id: request.branch.clients.id,
-            name: request.branch.clients.name,
-            email: request.branch.clients.email || null,
-            phone: request.branch.clients.phone || null
-          };
-        }
-      }
-
-      console.log(`Request ${request.id} branch data:`, JSON.stringify(request.branch, null, 2));
-      return response;
-    });
-
-    // Return the array directly as expected by the Flutter app
     res.json(formattedRequests);
   } catch (error) {
     console.error('Error in inProgressRequests:', error);
@@ -633,13 +636,169 @@ const inProgressRequests = async (req, res, next) => {
   }
 };
 
+// Get completed requests
+const completedRequests = async (req, res, next) => {
+  try {
+    console.log('User making request:', req.user);
+    const userId = req.user.userId;
+
+    // Simplified: Only fetch completed requests assigned to the user
+    const whereCondition = {
+      status: 'completed',
+      myStatus: 3,
+      staff_id: userId
+    };
+
+    console.log('Query conditions:', JSON.stringify(whereCondition, null, 2));
+
+    const requests = await prisma.request.findMany({
+      where: whereCondition,
+      include: {
+        ServiceType: {
+          select: {
+            name: true
+          }
+        },
+        branches: {
+          select: {
+            name: true,
+            clients: {
+              select: {
+                name: true
+              }
+            }
+          }
+        },
+        staff: {
+          select: {
+            id: true,
+            name: true,
+            role: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    console.log('Found requests:', requests.length);
+
+    const formattedRequests = requests.map(request => ({
+      id: request.id,
+      pickupLocation: request.pickupLocation,
+      deliveryLocation: request.deliveryLocation,
+      status: request.status,
+      priority: request.priority,
+      myStatus: request.myStatus,
+      branch: request.branches ? {
+        name: request.branches.name,
+        client: request.branches.clients?.name
+      } : null,
+      serviceType: request.ServiceType?.name,
+      assignedStaff: request.staff?.map(staff => ({
+        id: staff.id,
+        name: staff.name,
+        role: staff.role
+      }))
+    }));
+
+    res.json(formattedRequests);
+  } catch (error) {
+    console.error('Error in completedRequests:', error);
+    next(error);
+  }
+};
+
+// Get vault officers
+const getVaultOfficers = async (req, res, next) => {
+  try {
+    const vaultOfficers = await prisma.staff.findMany({
+      where: {
+        roleId: 8,
+        status: 1  // Active staff only
+      },
+      select: {
+        id: true,
+        name: true,
+        phone: true
+      },
+      orderBy: {
+        name: 'asc'
+      }
+    });
+
+    res.json({
+      success: true,
+      data: vaultOfficers
+    });
+
+  } catch (error) {
+    console.error('Error fetching vault officers:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch vault officers',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Get available vault officers
+const getAvailableVaultOfficers = async (req, res, next) => {
+  try {
+    const vaultOfficers = await prisma.staff.findMany({
+      where: {
+        roleId: 8,
+        status: 1
+      },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        // Count current active assignments
+        _count: {
+          select: {
+            Request: {
+              where: {
+                status: {
+                  in: ['pending', 'in_progress']
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: [
+        // Order by least assignments first, then by name
+        { Request: { _count: 'asc' } },
+        { name: 'asc' }
+      ]
+    });
+
+    res.json({
+      success: true,
+      data: vaultOfficers
+    });
+
+  } catch (error) {
+    console.error('Error fetching available vault officers:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch vault officers',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   getPendingRequests,
+  getAllStaffRequests,
+  inProgressRequests,
+  completedRequests,
   getRequestDetails,
   confirmPickup,
   confirmDelivery,
-  getAllStaffRequests,
-  inProgressRequests,
   assignToVaultOfficer,
-  completeVaultDelivery
+  getVaultOfficers,
+  getAvailableVaultOfficers
 };
