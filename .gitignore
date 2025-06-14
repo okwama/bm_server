@@ -673,12 +673,12 @@
 /node_modules/jsonwebtoken/decode.js
 /node_modules/jsonwebtoken/index.js
 /node_modules/jsonwebtoken/lib/asymmetricKeyDetailsSupported.js
-/node_modules/jsonwebtoken/lib/JsonWebTokenError.js
+/node_modules/jsonwebtoken/lib/JsonWebtokenError.js
 /node_modules/jsonwebtoken/lib/NotBeforeError.js
 /node_modules/jsonwebtoken/lib/psSupported.js
 /node_modules/jsonwebtoken/lib/rsaPssKeyDetailsSupported.js
 /node_modules/jsonwebtoken/lib/timespan.js
-/node_modules/jsonwebtoken/lib/TokenExpiredError.js
+/node_modules/jsonwebtoken/lib/tokenExpiredError.js
 /node_modules/jsonwebtoken/lib/validateAsymmetricKey.js
 /node_modules/jsonwebtoken/LICENSE
 /node_modules/jsonwebtoken/node_modules/ms/index.js
