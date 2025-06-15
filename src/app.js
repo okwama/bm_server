@@ -55,6 +55,10 @@ app.get('/api', (req, res) => {
   res.json({ status: 'ok', message: 'API root working' });
 });
 
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'API working at root' });
+});
+
 // Global error handler
 app.use(errorHandler);
 
