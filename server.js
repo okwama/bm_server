@@ -1,5 +1,5 @@
-const app = require('./src/app');
-const prisma = require('./src/config/db');
+const app = require('./app');
+const prisma = require('./config/db');
 
 // Remove server creation and listening logic
 const http = require('http');
