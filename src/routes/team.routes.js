@@ -8,7 +8,7 @@ const teamController = require('../controllers/team.controller');
 
 // Get my team
 router.get('/my-team', auth.authenticate, teamController.getMyTeam);
-
+router.post('/add-new-team-member', auth.authenticate, teamController.addNewTeamMember);
 // PARAMETERIZED ROUTES MUST COME LAST
 // Get team by ID
 router.get('/:id', auth.authenticate, teamController.getTeamById);
