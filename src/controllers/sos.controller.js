@@ -1,4 +1,5 @@
-const prisma = require('../config/db');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
 // Create a new SOS alert
 const createSOS = async (req, res) => {
