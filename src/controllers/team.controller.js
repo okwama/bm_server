@@ -1,5 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../config/db');
 
 const getTeamById = async (req, res) => {
   try {
@@ -104,6 +103,7 @@ const getMyTeam = async (req, res) => {
     res.status(500).json({ message: 'Internal server error' });
   }
 };
+
 const addNewTeamMember = async (req, res) => {
   try {
     const { staffId, teamId } = req.body;
@@ -115,18 +115,12 @@ const addNewTeamMember = async (req, res) => {
       }
     });
     res.status(200).json({ message: 'New team member assigned successfully', newTeamMember });
-    const teamMembers = await prisma.team_members.findMany({
-      where: {
-        team_id: teamId,
-        created_at: { lte: today }
-      }
-    });
-    res.status(200).json({ teamMembers });
   } catch (error) {
     console.error('Error assigning new team member:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 };
+
 module.exports = {
   getMyTeam,
   getTeamById,

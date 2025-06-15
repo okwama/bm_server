@@ -1,5 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../config/db');
 
 // POST /api/locations
 const createLocation = async (req, res) => {
@@ -76,9 +75,8 @@ const createLocation = async (req, res) => {
   }
 };
 
-
 // GET /api/locations/:requestId
- const getLocationsByRequest = async (req, res) => {
+const getLocationsByRequest = async (req, res) => {
   const { requestId } = req.params;
 
   try {
@@ -93,8 +91,8 @@ const createLocation = async (req, res) => {
     res.status(500).json({ error: 'Could not fetch locations' });
   }
 };
+
 module.exports = {
   createLocation,
-  getLocationsByRequest,
-  
+  getLocationsByRequest
 };
