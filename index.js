@@ -3,10 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-const serverless = require('serverless-http');
-const http = require('http');
 const errorHandler = require('./middleware/error');
-const prisma = require('./config/db');
 
 const authRoutes = require('./routes/auth.routes');
 const requestRoutes = require('./routes/request.routes');
@@ -43,30 +40,4 @@ app.get('/', (req, res) => {
 
 app.use(errorHandler);
 
-// Export the handler for Vercel
-module.exports.handler = serverless(app);
-
-// Start the server for local development
-if (require.main === module) {
-  const PORT = process.env.PORT || 5000;
-  const server = http.createServer(app);
-
-  server.listen(PORT, async () => {
-    console.log(`Server running on port ${PORT}`);
-    try {
-      await prisma.$connect();
-      console.log('Database connected successfully.');
-    } catch (error) {
-      console.error('Database connection failed:', error);
-      process.exit(1);
-    }
-  });
-
-  process.on('SIGTERM', () => {
-    console.log('SIGTERM signal received: closing HTTP server');
-    server.close(() => {
-      console.log('HTTP server closed');
-      prisma.$disconnect();
-    });
-  });
-} 
+module.exports = app; 
