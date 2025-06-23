@@ -11,16 +11,12 @@ const createStaff = async (staffData) => {
     throw new Error('Invalid role ID');
   }
 
-  if (idNo == null) {
-    throw new Error('ID Number is required');
-  }
-
   const newStaff = await prisma.staff.create({
     data: {
       name,
       phone,
       emplNo,
-      idNo: parseInt(idNo, 10),
+      idNo: idNo ? parseInt(idNo, 10) : null,
       roleId,
       photoUrl,
       role: role.name,

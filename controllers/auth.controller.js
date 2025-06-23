@@ -165,7 +165,7 @@ const register = async (req, res, next) => {
         roleId: roleId || 0,
         role,
         emplNo,
-        idNo,
+        idNo: idNo ? parseInt(idNo, 10) : null,
         photoUrl: 'default.jpg',
         status: 0
       }
