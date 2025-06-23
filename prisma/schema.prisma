@@ -75,13 +75,14 @@ model Staff {
   assignedTo          Team_assignment[] @relation("TeamMemberToStaff")
   cash_counts         cash_counts[]
   CrewLocation        CrewLocation[]
-  sos                 sos[]
+  sos                 sos[]@relation("GuardSOS")
   team_members        team_members[]
   tokens              tokens[]
   requests            Request[]         @relation("RequestToStaff")
   createdRequests     Request[]         @relation("UserRequests")
 
   @@map("staff")
+
 }
 
 model Team_assignment {
@@ -267,7 +268,7 @@ model service_requests {
 
 model sos {
   id         Int      @id @default(autoincrement())
-  staff_id   Int
+  guard_id   Int
   sos_type   String   @default("sos")
   latitude   Float
   longitude  Float
@@ -275,10 +276,10 @@ model sos {
   created_at DateTime @default(now()) @db.Timestamp(0)
   updated_at DateTime @default(now()) @db.Timestamp(0)
   guard_name String   @db.VarChar(255)
-  comment    String   @db.Text
-  staff      Staff    @relation(fields: [staff_id], references: [id])
+  comment    String?  @db.Text
+  guard      Staff    @relation("GuardSOS", fields: [guard_id], references: [id])
 
-  @@index([staff_id], map: "sos_staff_id_fkey")
+  @@index([guard_id], map: "sos_guard_id_fkey")
 }
 
 model team_members {

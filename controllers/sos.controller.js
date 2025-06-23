@@ -5,7 +5,7 @@ const createSOS = async (req, res) => {
   try {
     const guard_id = req.user.userId;
     const guard_name = req.user.name;
-    const { latitude, longitude, sos_type } = req.body;
+    const { latitude, longitude, sos_type, comment } = req.body;
 
     if (!latitude || !longitude) {
       return res.status(400).json({ error: 'Latitude and longitude are required' });
@@ -13,14 +13,17 @@ const createSOS = async (req, res) => {
 
     const sos = await prisma.sos.create({
       data: {
-        guard_id: guard_id,
         guard_name: guard_name,
         sos_type: sos_type || 'sos',
         latitude: parseFloat(latitude),
         longitude: parseFloat(longitude),
         status: 'active',
-        created_at: new Date(),
-        updated_at: new Date(),
+        comment: comment,
+        guard: {
+          connect: {
+            id: guard_id,
+          },
+        },
       },
     });
     res.status(201).json({ success: true, sos });
