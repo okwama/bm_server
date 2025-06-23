@@ -115,13 +115,6 @@ const addNewTeamMember = async (req, res) => {
       }
     });
     res.status(200).json({ message: 'New team member assigned successfully', newTeamMember });
-    const teamMembers = await prisma.team_members.findMany({
-      where: {
-        team_id: teamId,
-        created_at: { lte: today }
-      }
-    });
-    res.status(200).json({ teamMembers });
   } catch (error) {
     console.error('Error assigning new team member:', error);
     res.status(500).json({ message: 'Internal server error' });

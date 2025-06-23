@@ -2,9 +2,6 @@ const prisma = require('../config/db');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { validationResult } = require('express-validator');
-const { PrismaClient } = require('@prisma/client');
-
-const prismaClient = new PrismaClient();
 
 // Generate tokens
 const generateTokens = async (user, deviceInfo = null, ipAddress = null) => {
@@ -26,14 +23,14 @@ const generateTokens = async (user, deviceInfo = null, ipAddress = null) => {
   );
 
   // Store token in database
-  await prismaClient.token.create({
+  await prisma.tokens.create({
     data: {
-      staffId: user.id,
-      accessToken,
-      refreshToken,
-      expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000), // 8 hours
-      deviceInfo,
-      ipAddress,
+      staff_id: user.id,
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      expires_at: new Date(Date.now() + 8 * 60 * 60 * 1000), // 8 hours
+      device_info: deviceInfo,
+      ip_address: ipAddress,
     },
   });
 
@@ -67,7 +64,7 @@ const login = async (req, res, next) => {
     console.log(`Login attempt for employee: ${emplNo}`);
     
     // Find user by employee number
-    const user = await prismaClient.staff.findFirst({
+    const user = await prisma.staff.findFirst({
       where: { emplNo: emplNo.toString().trim() }
     });
 
@@ -99,12 +96,12 @@ const login = async (req, res, next) => {
     }
 
     // Invalidate existing tokens for this user
-    await prismaClient.token.updateMany({
+    await prisma.tokens.updateMany({
       where: { 
-        staffId: user.id,
-        isValid: true
+        staff_id: user.id,
+        is_valid: true
       },
-      data: { isValid: false }
+      data: { is_valid: false }
     });
 
     const { accessToken, refreshToken } = await generateTokens(user);
@@ -148,7 +145,7 @@ const register = async (req, res, next) => {
     const { name, phone, password, roleId, role, emplNo, idNo } = req.body;
 
     // Check if employee number exists
-    const existingUser = await prismaClient.staff.findFirst({
+    const existingUser = await prisma.staff.findFirst({
       where: { emplNo }
     });
 
@@ -160,7 +157,7 @@ const register = async (req, res, next) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Create new staff with optional fields
-    const user = await prismaClient.staff.create({
+    const user = await prisma.staff.create({
       data: {
         name,
         phone: phone || null,
@@ -195,7 +192,7 @@ const register = async (req, res, next) => {
 
 const getProfile = async (req, res, next) => {
   try {
-    const staff = await prismaClient.staff.findUnique({
+    const staff = await prisma.staff.findUnique({
       where: { id: req.user.userId },
       select: {
         id: true,
@@ -244,7 +241,7 @@ const updateProfile = async (req, res, next) => {
   try {
     const { name, phone } = req.body;
 
-    const updatedUser = await prismaClient.staff.update({
+    const updatedUser = await prisma.staff.update({
       where: { id: req.user.userId },
       data: {
         name,
@@ -277,11 +274,11 @@ const refreshToken = async (req, res) => {
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
     
     // Check if token exists and is valid
-    const tokenRecord = await prismaClient.token.findFirst({
+    const tokenRecord = await prisma.tokens.findFirst({
       where: {
-        refreshToken,
-        isValid: true,
-        expiresAt: { gt: new Date() }
+        refresh_token: refreshToken,
+        is_valid: true,
+        expires_at: { gt: new Date() }
       },
       include: { staff: true }
     });
@@ -291,9 +288,9 @@ const refreshToken = async (req, res) => {
     }
 
     // Invalidate old token
-    await prismaClient.token.update({
+    await prisma.tokens.update({
       where: { id: tokenRecord.id },
-      data: { isValid: false }
+      data: { is_valid: false }
     });
 
     // Generate new tokens
@@ -315,12 +312,12 @@ const logout = async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1];
     
     if (token) {
-      await prismaClient.token.updateMany({
+      await prisma.tokens.updateMany({
         where: { 
-          accessToken: token,
-          isValid: true
+          access_token: token,
+          is_valid: true
         },
-        data: { isValid: false }
+        data: { is_valid: false }
       });
     }
 

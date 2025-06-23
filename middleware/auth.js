@@ -1,6 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../config/db');
 
 const authenticate = async (req, res, next) => {
   try {
@@ -15,11 +14,11 @@ const authenticate = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     // Check if token exists and is valid in database
-    const tokenRecord = await prisma.token.findFirst({
+    const tokenRecord = await prisma.tokens.findFirst({
       where: {
-        accessToken: token,
-        isValid: true,
-        expiresAt: { gt: new Date() }
+        access_token: token,
+        is_valid: true,
+        expires_at: { gt: new Date() }
       },
       include: { staff: true }
     });
@@ -43,9 +42,9 @@ const authenticate = async (req, res, next) => {
     }
 
     // Update last used timestamp
-    await prisma.token.update({
+    await prisma.tokens.update({
       where: { id: tokenRecord.id },
-      data: { lastUsedAt: new Date() }
+      data: { last_used_at: new Date() }
     });
 
     // Attach user info to request

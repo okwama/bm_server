@@ -2,10 +2,10 @@
     "name": "cit-api",
     "version": "1.0.0",
     "description": "Cash in Transit Requisition System API",
-    "main": "server.js",
+    "main": "index.js",
 "scripts": {
-  "start": "node server.js",
-  "dev": "nodemon server.js",
+  "start": "node index.js",
+  "dev": "nodemon index.js",
   "migrate": "npx prisma migrate dev",
   "generate": "npx prisma generate",
   "studio": "npx prisma studio",
