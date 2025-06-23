@@ -10,6 +10,8 @@ const teamRoutes = require('./routes/team.routes');
 const locationRoutes = require('./routes/location.routes');
 const uploadRoutes = require('./routes/upload.routes');
 const sosRoutes = require('./routes/sos.routes');
+const noticeRoutes = require('./routes/notice.routes');
+const staffRoutes = require('./routes/staff.routes');
 const app = express();
 
 app.use(helmet());
@@ -27,9 +29,11 @@ app.use('/api/teams', teamRoutes);
 app.use('/api/locations', locationRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/sos', sosRoutes);
+app.use('/api/notices', noticeRoutes);
+app.use('/api/staff', staffRoutes);
 
-app.get('/api', (req, res) => {
-  res.json({ status: 'ok', message: 'API root working' });
+app.get('/', (req, res) => {
+  res.send('BM Security API is running');
 });
 
 app.use(errorHandler);
