@@ -40,4 +40,8 @@ app.get('/', (req, res) => {
 
 app.use(errorHandler);
 
-module.exports = app; 
+// ✅ START THE SERVER
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});

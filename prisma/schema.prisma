@@ -33,7 +33,7 @@ model Request {
   CrewLocation        CrewLocation[]
   delivery_completion delivery_completion?
   branches            branches?            @relation(fields: [branch_id], references: [id])
-  Staff               users                @relation(fields: [userId], references: [id], onUpdate: Restrict, map: "requests_ibfk_1")
+  user                Staff                @relation("UserRequests", fields: [userId], references: [id], onUpdate: Restrict, map: "requests_ibfk_1")
   ServiceType         ServiceType          @relation(fields: [serviceTypeId], references: [id], onUpdate: Restrict, map: "requests_ibfk_2")
   seals               seals?               @relation(fields: [sealNumberId], references: [id])
   staff               Staff[]              @relation("RequestToStaff")
@@ -79,6 +79,7 @@ model Staff {
   team_members        team_members[]
   tokens              tokens[]
   requests            Request[]         @relation("RequestToStaff")
+  createdRequests     Request[]         @relation("UserRequests")
 
   @@map("staff")
 }
@@ -118,7 +119,6 @@ model users {
   role       users_role @default(user)
   created_at DateTime   @default(now())
   updated_at DateTime   @default(now())
-  requests   Request[]
 }
 
 model branches {
