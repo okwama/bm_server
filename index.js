@@ -13,6 +13,7 @@ const uploadRoutes = require('./routes/upload.routes');
 const sosRoutes = require('./routes/sos.routes');
 const noticeRoutes = require('./routes/notice.routes');
 const staffRoutes = require('./routes/staff.routes');
+const sseRoutes = require('./routes/sse.routes');
 
 const app = express();
 
@@ -33,6 +34,7 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/sos', sosRoutes);
 app.use('/api/notices', noticeRoutes);
 app.use('/api/staff', staffRoutes);
+app.use('/api/sse', sseRoutes);
 
 app.get('/', (req, res) => {
   res.send('BM Security API is running');
@@ -40,8 +42,4 @@ app.get('/', (req, res) => {
 
 app.use(errorHandler);
 
-// ✅ START THE SERVER
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+module.exports = app;

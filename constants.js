@@ -1,10 +1,10 @@
 module.exports = {
     RequestStatus: {
-      PENDING: 'PENDING',
-      ASSIGNED: 'ASSIGNED',
-      IN_TRANSIT: 'IN_TRANSIT',
-      COMPLETED: 'COMPLETED',
-      CANCELLED: 'CANCELLED'
+      UNSCHEDULED: 0,
+      PENDING: 1,
+      IN_PROGRESS: 2,
+      COMPLETED: 3,
+      CANCELLED: 4
     },
     UserStatus: {
       ACTIVE: 'ACTIVE',
@@ -18,6 +18,5 @@ module.exports = {
       COMMANDER: 'COMMANDER',
       OFFICER: 'OFFICER',
       DRIVER: 'DRIVER',
-    
     }
   };

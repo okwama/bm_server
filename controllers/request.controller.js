@@ -1,5 +1,6 @@
 const prisma = require('../config/db');
 const { validationResult } = require('express-validator');
+const sseService = require('../services/sse.service');
 
 const formatDate = (dateString) => {
   if (!dateString) return 'Not provided';
@@ -34,10 +35,10 @@ const getPendingRequests = async (req, res, next) => {
         id: true,
         pickupLocation: true,
         deliveryLocation: true,
-        status: true,
         priority: true,
         pickupDate: true,
         createdAt: true,
+        myStatus: true,
         ServiceType: {
           select: {
             id: true,
@@ -65,6 +66,7 @@ const getPendingRequests = async (req, res, next) => {
     }));
 
     console.log('=== End getPendingRequests Debug Logs ===');
+    
     res.json(formattedRequests);
   } catch (error) {
     console.error('Error in getPendingRequests:', {
@@ -90,7 +92,7 @@ const getAllStaffRequests = async (req, res, next) => {
         clientName: false,
         pickupLocation: true,
         deliveryLocation: true,
-        status: true,
+        myStatus: true,
         ServiceType: {
           select: {
             name: true
@@ -120,7 +122,7 @@ const getRequestDetails = async (req, res, next) => {
         id: requestId
       },
       include: {
-        Staff: {
+        staff: {
           select: {
             role: true
           }
@@ -193,13 +195,13 @@ const confirmPickup = async (req, res, next) => {
       return res.status(400).json({ message: 'Invalid request ID' });
     }
 
-    const { cashCount, imageUrl } = req.body;
+    const { cashCount, imageUrl, atmId, counterNumber } = req.body;
  
     console.log('Starting confirmPickup transaction for request:', requestId);
     
     // Start transaction with timeout
     const result = await prisma.$transaction(async (tx) => {
-      // Get request with service type
+      // Get request with service type and related data
       const request = await tx.request.findUnique({
         where: { id: requestId },
         include: {
@@ -207,6 +209,11 @@ const confirmPickup = async (req, res, next) => {
             select: {
               id: true,
               name: true
+            }
+          },
+          branches: {
+            select: {
+              client_id: true
             }
           }
         }
@@ -217,15 +224,19 @@ const confirmPickup = async (req, res, next) => {
         serviceTypeId: request?.ServiceType?.id,
         serviceTypeName: request?.ServiceType?.name,
         cashCount: !!cashCount,
-        hasImage: !!imageUrl
+        hasImage: !!imageUrl,
+        atmId: atmId,
+        counterNumber: counterNumber,
+        currentStatus: request?.myStatus
       });
  
       if (!request) {
         throw new Error('Request not found');
       }
  
-      if (request.status !== 'pending') {
-        throw new Error('Request is not in pending status');
+      // Only allow pickup confirmation for pending requests (myStatus = 1)
+      if (request.myStatus !== 1) {
+        throw new Error('Request is not in pending status (myStatus must be 1)');
       }
 
       // Validate cash count if provided
@@ -249,13 +260,22 @@ const confirmPickup = async (req, res, next) => {
           throw new Error('Invalid image URL format');
         }
       }
+
+      // Validate ATM loading specific fields for service type 4 only if ATM data is provided
+      if (request.ServiceType.id === 4 && (atmId || counterNumber)) {
+        if (!atmId) {
+          throw new Error('ATM ID is required for ATM loading service');
+        }
+        if (!counterNumber) {
+          throw new Error('Counter number is required for ATM loading service');
+        }
+      }
  
-      // Update request status first
+      // Update request status to in_progress (myStatus = 2)
       const updatedRequest = await tx.request.update({
         where: { id: requestId },
         data: {
-          status: 'in_progress',
-          myStatus: 2, // 2 means picked up
+          myStatus: 2, // 2 = in_progress (picked up)
           updatedAt: new Date()
         },
         include: {
@@ -265,11 +285,13 @@ const confirmPickup = async (req, res, next) => {
         }
       });
       
-      console.log('Request status updated to in_progress');
+      console.log('Request status updated to in_progress (myStatus = 2)');
  
       let cashCountRecord = null;
-      // For BSS service (ID: 2), create cash count record if provided
-      if (request.ServiceType.id === 2 || request.ServiceType.id === 3 || request.ServiceType.id === 4 && cashCount) {
+      let atmCounterRecord = null;
+
+      // For BSS service (ID: 2, 3) and ATM loading (ID: 4), create cash count record if provided
+      if ((request.ServiceType.id === 2 || request.ServiceType.id === 3 || request.ServiceType.id === 4) && cashCount) {
         try {
           const totalAmount = calculateTotalAmount(cashCount);
           console.log('Creating cash count record with total:', totalAmount);
@@ -305,10 +327,40 @@ const confirmPickup = async (req, res, next) => {
           throw new Error('Failed to create cash count record: ' + cashCountError.message);
         }
       }
+
+      // For ATM loading service (ID: 4), create ATM counter record only if ATM data is provided
+      if (request.ServiceType.id === 4 && atmId && counterNumber) {
+        try {
+          console.log('Creating ATM counter record for ATM loading');
+          
+          atmCounterRecord = await tx.atm_counters.create({
+            data: {
+              atm_id: parseInt(atmId),
+              client_id: request.branches?.client_id || 0,
+              counter_number: counterNumber,
+              team_id: request.team_id,
+              crew_commander_id: req.user.userId,
+              request_id: requestId,
+              date: new Date()
+            }
+          });
+          
+          console.log('ATM counter record created:', {
+            atmCounterId: atmCounterRecord.id,
+            atmId: atmCounterRecord.atm_id,
+            counterNumber: atmCounterRecord.counter_number,
+            requestId: requestId
+          });
+        } catch (atmCounterError) {
+          console.error('Error creating ATM counter record:', atmCounterError);
+          throw new Error('Failed to create ATM counter record: ' + atmCounterError.message);
+        }
+      }
  
       return {
         request: updatedRequest,
-        cashCount: cashCountRecord
+        cashCount: cashCountRecord,
+        atmCounter: atmCounterRecord
       };
     }, {
       timeout: 45000, // 45 second transaction timeout
@@ -317,6 +369,28 @@ const confirmPickup = async (req, res, next) => {
     
     console.log('Transaction completed successfully');
  
+    // Send SSE notifications for real-time updates
+    try {
+      const userId = req.user.userId;
+      
+      // Send status change notification
+      sseService.sendRequestStatusChange(
+        userId, 
+        requestId, 
+        1, // old status (pending)
+        2, // new status (in_progress)
+        result.request
+      );
+      
+      // Force dashboard update (bypass cache for immediate effect)
+      await sseService.forceDashboardUpdate(userId);
+      
+      console.log(`📡 SSE notifications sent for request ${requestId} pickup confirmation`);
+    } catch (sseError) {
+      console.error('❌ SSE notification error:', sseError);
+      // Don't fail the request if SSE fails
+    }
+ 
     // Send immediate response to prevent timeout
     res.status(200).json({
       success: true,
@@ -324,6 +398,11 @@ const confirmPickup = async (req, res, next) => {
       cashCount: result.cashCount ? {
         id: result.cashCount.id,
         totalAmount: result.cashCount.totalAmount
+      } : null,
+      atmCounter: result.atmCounter ? {
+        id: result.atmCounter.id,
+        atmId: result.atmCounter.atm_id,
+        counterNumber: result.atmCounter.counter_number
       } : null
     });
     
@@ -345,10 +424,13 @@ const confirmPickup = async (req, res, next) => {
     } else if (error.message === 'Request not found') {
       statusCode = 404;
       message = error.message;
-    } else if (error.message === 'Request is not in pending status') {
+    } else if (error.message === 'Request is not in pending status (myStatus must be 1)') {
       statusCode = 400;
       message = error.message;
     } else if (error.message.includes('Invalid') || error.message.includes('Invalid image URL')) {
+      statusCode = 400;
+      message = error.message;
+    } else if (error.message.includes('ATM ID is required') || error.message.includes('Counter number is required')) {
       statusCode = 400;
       message = error.message;
     } else if (error.message.includes('Timeout')) {
@@ -374,6 +456,12 @@ const confirmDelivery = async (req, res, next) => {
     console.log('=== Starting Delivery Confirmation ===');
     console.log('Request params:', req.params);
     console.log('Request body:', req.body);
+    console.log('Request body keys:', Object.keys(req.body));
+    console.log('Bank Details:', req.body.bankDetails);
+    console.log('ATM Counter:', req.body.atmCounter);
+    console.log('Latitude:', req.body.latitude);
+    console.log('Longitude:', req.body.longitude);
+    console.log('Notes:', req.body.notes);
     console.log('User:', req.user);
 
     const requestId = parseInt(req.params.id);
@@ -381,7 +469,7 @@ const confirmDelivery = async (req, res, next) => {
       return res.status(400).json({ message: 'Invalid request ID' });
     }
 
-    const { bankDetails, latitude, longitude, notes } = req.body;
+    const { bankDetails, atmCounter, latitude, longitude, notes } = req.body;
 
     // Validate required fields
     if (!latitude || !longitude) {
@@ -396,9 +484,17 @@ const confirmDelivery = async (req, res, next) => {
 
     // Start transaction
     const result = await prisma.$transaction(async (tx) => {
-      // 1. Get the request
+      // 1. Get the request with service type
       const request = await tx.request.findUnique({
-        where: { id: requestId }
+        where: { id: requestId },
+        include: {
+          ServiceType: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
       });
 
       console.log('Found request:', request);
@@ -416,9 +512,10 @@ const confirmDelivery = async (req, res, next) => {
         throw new Error('Not authorized to complete this delivery');
       }
 
-      if (request.status !== 'in_progress') {
-        console.log('Invalid request status:', request.status);
-        throw new Error('Request is not in progress');
+      // Only allow delivery completion for in-progress requests (myStatus = 2)
+      if (request.myStatus !== 2) {
+        console.log('Invalid request status:', request.myStatus);
+        throw new Error('Request is not in progress (myStatus must be 2)');
       }
 
       console.log('Creating delivery completion record');
@@ -463,28 +560,128 @@ const confirmDelivery = async (req, res, next) => {
         });
       }
 
-      // 4. Update request status
+      // 4. Handle ATM Counter update for ATM loading (service type 4)
+      let updatedAtmCounter = null;
+      if (request.ServiceType.id === 4 && atmCounter && atmCounter.counterNumber) {
+        try {
+          console.log('Handling ATM counter record for delivery completion');
+          
+          // Find existing ATM counter record for this request
+          const existingAtmCounter = await tx.atm_counters.findFirst({
+            where: { request_id: requestId }
+          });
+
+          if (existingAtmCounter) {
+            // Update the existing ATM counter record
+            updatedAtmCounter = await tx.atm_counters.update({
+              where: { id: existingAtmCounter.id },
+              data: {
+                counter_number: atmCounter.counterNumber,
+                date: new Date()
+              }
+            });
+            
+            console.log('ATM counter record updated:', {
+              atmCounterId: updatedAtmCounter.id,
+              counterNumber: updatedAtmCounter.counter_number,
+              requestId: requestId
+            });
+          } else {
+            // Create a new ATM counter record if none exists
+            console.log('No existing ATM counter record found, creating new one');
+            
+            // Get request details to get necessary data
+            const requestDetails = await tx.request.findUnique({
+              where: { id: requestId },
+              include: {
+                branches: {
+                  select: {
+                    client_id: true
+                  }
+                }
+              }
+            });
+
+            if (requestDetails) {
+              updatedAtmCounter = await tx.atm_counters.create({
+                data: {
+                  atm_id: requestDetails.atm_id || 1, // Use ATM ID from request or default
+                  client_id: requestDetails.branches?.client_id || 1,
+                  counter_number: atmCounter.counterNumber,
+                  team_id: requestDetails.team_id,
+                  crew_commander_id: req.user.userId,
+                  request_id: requestId,
+                  date: new Date()
+                }
+              });
+              
+              console.log('New ATM counter record created:', {
+                atmCounterId: updatedAtmCounter.id,
+                counterNumber: updatedAtmCounter.counter_number,
+                requestId: requestId
+              });
+            } else {
+              console.log('Could not get request details for ATM counter creation');
+            }
+          }
+        } catch (atmCounterError) {
+          console.error('Error handling ATM counter record:', atmCounterError);
+          // Don't throw error, just log it - delivery completion should still succeed
+        }
+      }
+
+      // 5. Update request status to completed (myStatus = 3)
       const updatedRequest = await tx.request.update({
         where: { id: requestId },
         data: {
-          status: 'completed',
-          myStatus: 3,
+          myStatus: 3, // 3 = completed
           updatedAt: new Date()
         }
       });
 
       console.log('Request status updated:', updatedRequest);
 
-      return { request: updatedRequest, deliveryCompletion };
+      return { 
+        request: updatedRequest, 
+        deliveryCompletion,
+        atmCounter: updatedAtmCounter
+      };
     });
 
     console.log('Transaction completed successfully');
+
+    // Send SSE notifications for real-time updates
+    try {
+      const userId = req.user.userId;
+      
+      // Send status change notification
+      sseService.sendRequestStatusChange(
+        userId, 
+        requestId, 
+        2, // old status (in_progress)
+        3, // new status (completed)
+        result.request
+      );
+      
+      // Force dashboard update (bypass cache for immediate effect)
+      await sseService.forceDashboardUpdate(userId);
+      
+      console.log(`📡 SSE notifications sent for request ${requestId} delivery completion`);
+    } catch (sseError) {
+      console.error('❌ SSE notification error:', sseError);
+      // Don't fail the request if SSE fails
+    }
 
     // Send success response
     res.status(200).json({
       success: true,
       data: result.request,
-      deliveryCompletion: result.deliveryCompletion
+      deliveryCompletion: result.deliveryCompletion,
+      atmCounter: result.atmCounter ? {
+        id: result.atmCounter.id,
+        counterNumber: result.atmCounter.counter_number,
+        atmId: result.atmCounter.atm_id
+      } : null
     });
 
   } catch (error) {
@@ -568,10 +765,9 @@ const inProgressRequests = async (req, res, next) => {
     console.log('User making request:', req.user);
     const userId = req.user.userId;
 
-    // Simplified: Only fetch in-progress requests assigned to the user
+    // Fetch in-progress requests assigned to the user (myStatus = 2)
     const whereCondition = {
-      status: 'in_progress',
-      myStatus: 2,
+      myStatus: 2, // 2 = in_progress
       staff_id: userId
     };
 
@@ -614,7 +810,7 @@ const inProgressRequests = async (req, res, next) => {
       id: request.id,
       pickupLocation: request.pickupLocation,
       deliveryLocation: request.deliveryLocation,
-      status: request.status,
+      status: request.myStatus, // Use myStatus as the status
       priority: request.priority,
       myStatus: request.myStatus,
       branch: request.branches ? {
@@ -642,10 +838,9 @@ const completedRequests = async (req, res, next) => {
     console.log('User making request:', req.user);
     const userId = req.user.userId;
 
-    // Simplified: Only fetch completed requests assigned to the user
+    // Fetch completed requests assigned to the user (myStatus = 3)
     const whereCondition = {
-      status: 'completed',
-      myStatus: 3,
+      myStatus: 3, // 3 = completed
       staff_id: userId
     };
 
@@ -688,7 +883,7 @@ const completedRequests = async (req, res, next) => {
       id: request.id,
       pickupLocation: request.pickupLocation,
       deliveryLocation: request.deliveryLocation,
-      status: request.status,
+      status: request.myStatus, // Use myStatus as the status
       priority: request.priority,
       myStatus: request.myStatus,
       branch: request.branches ? {
