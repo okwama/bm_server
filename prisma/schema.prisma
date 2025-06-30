@@ -48,6 +48,8 @@ model Request {
   @@index([staff_id], map: "staff_id")
   @@index([userId], map: "user_id")
   @@index([atm_id], map: "fk_requests_atm_id")
+  @@index([myStatus, staff_id], map: "requests_myStatus_staff_id_fkey")
+  @@index([myStatus, createdAt], map: "requests_myStatus_createdAt_fkey")
   @@map("requests")
   atm_cash_counts atm_cash_counts[]
 }
@@ -175,7 +177,9 @@ model cash_counts {
 
   @@index([request_id], map: "cash_counts_request_id_fkey")
   @@index([staff_id], map: "cash_counts_staff_id_fkey")
+  @@index([created_at, status], map: "cash_counts_created_at_status_fkey")
 }
+
 model atm_cash_counts {
   id           Int      @id @default(autoincrement())
   fifties      Int
@@ -201,6 +205,7 @@ model atm_cash_counts {
   @@index([request_id], map: "cash_counts_request_id_fkey")
   @@index([staff_id], map: "cash_counts_staff_id_fkey")
 }
+
 model clients {
   id               Int                @id @default(autoincrement())
   name             String             @db.VarChar(255)
@@ -399,6 +404,7 @@ model atm_counters {
   @@index([crew_commander_id], map: "atm_counters_crew_commander_id_fkey")
   @@index([client_id], map: "atm_counters_ibfk_1")
   @@index([request_id], map: "atm_counters_request_id_fkey")
+  @@index([date, client_id], map: "atm_counters_date_client_id_fkey")
 }
 
 model atm_loading {

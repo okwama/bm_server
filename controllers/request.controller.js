@@ -838,10 +838,20 @@ const completedRequests = async (req, res, next) => {
     console.log('User making request:', req.user);
     const userId = req.user.userId;
 
-    // Fetch completed requests assigned to the user (myStatus = 3)
+    // Get today's date at start of day and end of day
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Fetch completed requests assigned to the user (myStatus = 3) for current day
     const whereCondition = {
       myStatus: 3, // 3 = completed
-      staff_id: userId
+      staff_id: userId,
+      updatedAt: {
+        gte: today,
+        lt: tomorrow
+      }
     };
 
     console.log('Query conditions:', JSON.stringify(whereCondition, null, 2));
@@ -886,6 +896,7 @@ const completedRequests = async (req, res, next) => {
       status: request.myStatus, // Use myStatus as the status
       priority: request.priority,
       myStatus: request.myStatus,
+      completedAt: request.updatedAt, // Add completion timestamp
       branch: request.branches ? {
         name: request.branches.name,
         client: request.branches.clients?.name
