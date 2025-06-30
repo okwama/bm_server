@@ -1,71 +1,91 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/db');
 
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000; // 1 second
+
 const authenticate = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'No token provided' });
+    // Get token from header
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    if (!token) {
+      return res.status(401).json({ error: 'No authentication token provided' });
     }
 
-    const token = authHeader.split(' ')[1];
-    
-    // Verify token signature
+    // Verify JWT
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Check if token exists and is valid in database
-    const tokenRecord = await prisma.tokens.findFirst({
-      where: {
-        access_token: token,
-        is_valid: true,
-        expires_at: { gt: new Date() }
-      },
-      include: { staff: true }
-    });
+    // Check if token exists and is valid in database with retries
+    let tokenRecord = null;
+    let lastError = null;
+    
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        tokenRecord = await prisma.tokens.findFirst({
+          where: {
+            access_token: token,
+            is_valid: true,
+            expires_at: {
+              gt: new Date(),
+            },
+          },
+        });
+        
+        if (tokenRecord) break;
+        
+        // If no error but no token found, no need to retry
+        if (attempt === 0) break;
+        
+      } catch (error) {
+        lastError = error;
+        console.warn(`Auth retry attempt ${attempt + 1} failed:`, error.message);
+        
+        // Only retry on connection errors
+        if (!error.code?.startsWith('P2')) {
+          throw error;
+        }
+        
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      }
+    }
 
+    // If all retries failed
+    if (lastError && !tokenRecord) {
+      console.error('Auth failed after all retries:', lastError);
+      throw lastError;
+    }
+
+    // Check if token was found
     if (!tokenRecord) {
-      return res.status(401).json({ message: 'Invalid or expired token' });
+      return res.status(401).json({ error: 'Invalid or expired token' });
     }
 
-    // Check if user exists and is active
-    const user = tokenRecord.staff;
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    // Check user status (1 = active, 0 = inactive)
-    if (user.status !== 1) {
-      return res.status(403).json({ 
-        message: 'Your account is not active. Please contact an administrator.',
-        code: 'ACCOUNT_INACTIVE'
-      });
-    }
-
-    // Update last used timestamp
-    await prisma.tokens.update({
-      where: { id: tokenRecord.id },
-      data: { last_used_at: new Date() }
-    });
-
-    // Attach user info to request
-    req.user = {
-      userId: user.id,
-      role: user.role,
-      emplNo: user.emplNo,
-      name: user.name,
-      teamId: user.team_id // Add team ID for team-based access
-    };
+    // Add user info to request
+    req.user = decoded;
+    req.token = token;
 
     next();
   } catch (error) {
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ message: 'Token expired' });
-    }
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ message: 'Invalid token' });
-    }
     console.error('Auth middleware error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ error: 'Invalid token format' });
+    }
+    
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token has expired' });
+    }
+    
+    // Handle Prisma connection errors
+    if (error.code?.startsWith('P2')) {
+      return res.status(503).json({ 
+        error: 'Database connection error, please try again',
+        retryAfter: 5
+      });
+    }
+
+    res.status(500).json({ error: 'Authentication error' });
   }
 };
 

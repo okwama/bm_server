@@ -1,30 +1,28 @@
 const { PrismaClient } = require('@prisma/client');
 
-// Configure Prisma with connection pool settings
-const prisma = global.prisma || new PrismaClient({
+const prisma = new PrismaClient({
   datasources: {
     db: {
-      url: process.env.DATABASE_URL
-    }
+      url: process.env.DATABASE_URL,
+    },
   },
-  // Connection pool configuration
-  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+  log: ['error', 'warn'],
 });
 
-if (process.env.NODE_ENV === 'development') {
-  global.prisma = prisma;
-}
-
-// Add connection pool event listeners for debugging
-prisma.$on('query', (e) => {
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`🔍 Query: ${e.query}`);
-    console.log(`⏱️ Duration: ${e.duration}ms`);
-  }
-});
-
+// Handle connection errors
 prisma.$on('error', (e) => {
-  console.error('❌ Prisma Error:', e);
+  console.error('Prisma Client Error:', e);
+});
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  await prisma.$disconnect();
+  process.exit(0);
 });
 
 module.exports = prisma;
