@@ -290,13 +290,13 @@ const confirmPickup = async (req, res, next) => {
       let cashCountRecord = null;
       let atmCounterRecord = null;
 
-      // For BSS service (ID: 2, 3) and ATM loading (ID: 4), create cash count record if provided
-      if ((request.ServiceType.id === 2 || request.ServiceType.id === 3 || request.ServiceType.id === 4) && cashCount) {
+      // For ATM service (ID: 4), create ATM cash count record if provided
+      if (request.ServiceType.id === 4 && cashCount) {
         try {
           const totalAmount = calculateTotalAmount(cashCount);
-          console.log('Creating cash count record with total:', totalAmount);
+          console.log('Creating ATM cash count record with total:', totalAmount);
           
-          cashCountRecord = await tx.cash_counts.create({
+          cashCountRecord = await tx.atm_cash_counts.create({
             data: {
               ones: cashCount.ones ?? 0,
               fives: cashCount.fives ?? 0,
@@ -317,14 +317,14 @@ const confirmPickup = async (req, res, next) => {
             }
           });
           
-          console.log('Cash count record created:', {
+          console.log('ATM cash count record created:', {
             cashCountId: cashCountRecord.id,
             totalAmount: cashCountRecord.totalAmount,
             requestId: requestId
           });
         } catch (cashCountError) {
-          console.error('Error creating cash count record:', cashCountError);
-          throw new Error('Failed to create cash count record: ' + cashCountError.message);
+          console.error('Error creating ATM cash count record:', cashCountError);
+          throw new Error('Failed to create ATM cash count record: ' + cashCountError.message);
         }
       }
 

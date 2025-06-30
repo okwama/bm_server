@@ -32,6 +32,7 @@ model Request {
   sealNumberId        Int?
   atm_counters        atm_counters[]
   cash_counts         cash_counts[]
+  cash_processing     cash_processing[]
   CrewLocation        CrewLocation[]
   delivery_completion delivery_completion?
   atms                atms?                @relation(fields: [atm_id], references: [id], onUpdate: Restrict, map: "fk_requests_atm_id")
@@ -48,6 +49,7 @@ model Request {
   @@index([userId], map: "user_id")
   @@index([atm_id], map: "fk_requests_atm_id")
   @@map("requests")
+  atm_cash_counts atm_cash_counts[]
 }
 
 model ServiceType {
@@ -88,6 +90,7 @@ model Staff {
   requests            Request[]         @relation("RequestToStaff")
 
   @@map("staff")
+  atm_cash_counts atm_cash_counts[]
 }
 
 model Team_assignment {
@@ -138,13 +141,42 @@ model branches {
   created_at       DateTime           @default(now()) @db.Timestamp(0)
   updated_at       DateTime           @default(now()) @db.Timestamp(0)
   clients          clients            @relation(fields: [client_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "branches_ibfk_1")
+  client_update    client_update[]
   requests         Request[]
   service_requests service_requests[]
+  vault_update     vault_update[]
 
   @@index([client_id], map: "client_id")
 }
 
 model cash_counts {
+  id              Int                 @id @default(autoincrement())
+  fifties         Int
+  hundreds        Int
+  twoHundreds     Int
+  fiveHundreds    Int
+  thousands       Int
+  totalAmount     Int                 @default(0)
+  sealNumber      String?
+  imagePath       String?
+  image_url       String?             @db.VarChar(255)
+  staff_id        Int?
+  created_at      DateTime            @default(now())
+  request_id      Int?
+  fives           Int
+  ones            Int
+  tens            Int
+  twenties        Int
+  forties         Int
+  status          cash_counts_status? @default(pending)
+  requests        Request?            @relation(fields: [request_id], references: [id])
+  staff           Staff?              @relation(fields: [staff_id], references: [id])
+  cash_processing cash_processing[]
+
+  @@index([request_id], map: "cash_counts_request_id_fkey")
+  @@index([staff_id], map: "cash_counts_staff_id_fkey")
+}
+model atm_cash_counts {
   id           Int      @id @default(autoincrement())
   fifties      Int
   hundreds     Int
@@ -169,7 +201,6 @@ model cash_counts {
   @@index([request_id], map: "cash_counts_request_id_fkey")
   @@index([staff_id], map: "cash_counts_staff_id_fkey")
 }
-
 model clients {
   id               Int                @id @default(autoincrement())
   name             String             @db.VarChar(255)
@@ -180,10 +211,13 @@ model clients {
   created_at       DateTime           @default(now()) @db.Timestamp(0)
   updated_at       DateTime           @default(now()) @db.Timestamp(0)
   atm_counters     atm_counters[]
+  atm_loading      atm_loading[]
   atms             atms[]
   branches         branches[]
+  client_update    client_update[]
   service_charges  service_charges[]
   service_requests service_requests[]
+  vault_update     vault_update[]
 }
 
 model delivery_completion {
@@ -301,12 +335,14 @@ model team_members {
 }
 
 model teams {
-  id                Int            @id @default(autoincrement())
-  name              String         @db.VarChar(255)
+  id                Int             @id @default(autoincrement())
+  name              String          @db.VarChar(255)
   crew_commander_id Int?
-  created_at        DateTime       @default(now()) @db.Timestamp(0)
+  created_at        DateTime        @default(now()) @db.Timestamp(0)
+  client_update     client_update[]
   team_members      team_members[]
-  staff             Staff?         @relation(fields: [crew_commander_id], references: [id], onUpdate: Restrict, map: "fk_teams_crew_commander")
+  staff             Staff?          @relation(fields: [crew_commander_id], references: [id], onUpdate: Restrict, map: "fk_teams_crew_commander")
+  vault_update      vault_update[]
 
   @@index([crew_commander_id], map: "fk_teams_crew_commander")
 }
@@ -330,16 +366,18 @@ model tokens {
 }
 
 model atms {
-  id           Int           @id @default(autoincrement())
-  client_id    Int
-  atm_code     String        @db.VarChar(255)
-  location     String        @db.VarChar(255)
-  comment      String?       @db.Text
-  created_at   DateTime      @default(now()) @db.Timestamp(0)
-  updated_at   DateTime      @default(now()) @db.Timestamp(0)
-  atm_counters atm_counters?
-  clients      clients       @relation(fields: [client_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "atms_ibfk_1")
-  requests     Request[]
+  id            Int             @id @default(autoincrement())
+  client_id     Int
+  atm_code      String          @db.VarChar(255)
+  location      String          @db.VarChar(255)
+  comment       String?         @db.Text
+  created_at    DateTime        @default(now()) @db.Timestamp(0)
+  updated_at    DateTime        @default(now()) @db.Timestamp(0)
+  atm_counters  atm_counters?
+  atm_loading   atm_loading[]
+  clients       clients         @relation(fields: [client_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "atms_ibfk_1")
+  client_update client_update[]
+  requests      Request[]
 
   @@unique([client_id, atm_code], map: "unique_atm_code_per_client")
 }
@@ -361,6 +399,165 @@ model atm_counters {
   @@index([crew_commander_id], map: "atm_counters_crew_commander_id_fkey")
   @@index([client_id], map: "atm_counters_ibfk_1")
   @@index([request_id], map: "atm_counters_request_id_fkey")
+}
+
+model atm_loading {
+  id           Int      @id @default(autoincrement())
+  client_id    Int
+  atm_id       Int
+  ones         Int?     @default(0)
+  fives        Int?     @default(0)
+  tens         Int?     @default(0)
+  twenties     Int?     @default(0)
+  forties      Int?     @default(0)
+  fifties      Int?     @default(0)
+  hundreds     Int?     @default(0)
+  twoHundreds  Int?     @default(0)
+  fiveHundreds Int?     @default(0)
+  thousands    Int?     @default(0)
+  total_amount Decimal  @db.Decimal(15, 2)
+  loading_date DateTime @db.Date
+  comment      String?  @db.Text
+  created_at   DateTime @default(now()) @db.Timestamp(0)
+  updated_at   DateTime @default(now()) @db.Timestamp(0)
+  clients      clients  @relation(fields: [client_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "atm_loading_ibfk_1")
+  atms         atms     @relation(fields: [atm_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "atm_loading_ibfk_2")
+
+  @@index([atm_id], map: "idx_atm_id")
+  @@index([client_id], map: "idx_client_id")
+  @@index([loading_date], map: "idx_loading_date")
+}
+
+model cash_processing {
+  id                     Int         @id @default(autoincrement())
+  cash_count_id          Int
+  request_id             Int
+  expected_total         Decimal     @db.Decimal(15, 2)
+  processed_total        Decimal     @db.Decimal(15, 2)
+  difference             Decimal     @db.Decimal(15, 2)
+  matched                Boolean?    @default(false)
+  expected_ones          Int?        @default(0)
+  expected_fives         Int?        @default(0)
+  expected_tens          Int?        @default(0)
+  expected_twenties      Int?        @default(0)
+  expected_forties       Int?        @default(0)
+  expected_fifties       Int?        @default(0)
+  expected_hundreds      Int?        @default(0)
+  expected_twoHundreds   Int?        @default(0)
+  expected_fiveHundreds  Int?        @default(0)
+  expected_thousands     Int?        @default(0)
+  processed_ones         Int?        @default(0)
+  processed_fives        Int?        @default(0)
+  processed_tens         Int?        @default(0)
+  processed_twenties     Int?        @default(0)
+  processed_forties      Int?        @default(0)
+  processed_fifties      Int?        @default(0)
+  processed_hundreds     Int?        @default(0)
+  processed_twoHundreds  Int?        @default(0)
+  processed_fiveHundreds Int?        @default(0)
+  processed_thousands    Int?        @default(0)
+  comment                String?     @db.Text
+  created_at             DateTime    @default(now()) @db.Timestamp(0)
+  cash_counts            cash_counts @relation(fields: [cash_count_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "cash_processing_ibfk_1")
+  requests               Request     @relation(fields: [request_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "cash_processing_ibfk_2")
+
+  @@index([cash_count_id], map: "cash_count_id")
+  @@index([request_id], map: "request_id")
+}
+
+model client_update {
+  id               Int                @id @default(autoincrement())
+  client_id        Int
+  branch_id        Int?
+  team_id          Int?
+  type             client_update_type
+  amount           Decimal            @db.Decimal(15, 2)
+  new_balance      Decimal            @db.Decimal(15, 2)
+  comment          String?            @db.Text
+  ones             Int?               @default(0)
+  fives            Int?               @default(0)
+  tens             Int?               @default(0)
+  twenties         Int?               @default(0)
+  forties          Int?               @default(0)
+  fifties          Int?               @default(0)
+  hundreds         Int?               @default(0)
+  twoHundreds      Int?               @default(0)
+  fiveHundreds     Int?               @default(0)
+  thousands        Int?               @default(0)
+  created_at       DateTime           @default(now()) @db.Timestamp(0)
+  transaction_date DateTime?          @db.Date
+  atm_id           Int?
+  clients          clients            @relation(fields: [client_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "client_update_ibfk_1")
+  branches         branches?          @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "client_update_ibfk_2")
+  teams            teams?             @relation(fields: [team_id], references: [id], onUpdate: Restrict, map: "client_update_ibfk_3")
+  atms             atms?              @relation(fields: [atm_id], references: [id], onUpdate: Restrict, map: "client_update_ibfk_4")
+
+  @@index([atm_id], map: "atm_id")
+  @@index([branch_id], map: "branch_id")
+  @@index([client_id], map: "client_id")
+  @@index([team_id], map: "team_id")
+}
+
+model vault {
+  id              Int            @id @default(autoincrement())
+  name            String         @db.VarChar(255)
+  current_balance Decimal?       @default(0.00) @db.Decimal(15, 2)
+  thousands       Int?           @default(0)
+  fiveHundreds    Int?           @default(0)
+  twoHundreds     Int?           @default(0)
+  hundreds        Int?           @default(0)
+  fifties         Int?           @default(0)
+  forties         Int?           @default(0)
+  twenties        Int?           @default(0)
+  tens            Int?           @default(0)
+  fives           Int?           @default(0)
+  ones            Int?           @default(0)
+  created_at      DateTime       @default(now()) @db.Timestamp(0)
+  updated_at      DateTime       @default(now()) @db.Timestamp(0)
+  vault_update    vault_update[]
+}
+
+model vault_update {
+  id               Int       @id @default(autoincrement())
+  vault_id         Int
+  client_id        Int?
+  branch_id        Int?
+  team_id          Int?
+  amount_in        Decimal?  @default(0.00) @db.Decimal(15, 2)
+  amount_out       Decimal?  @default(0.00) @db.Decimal(15, 2)
+  new_balance      Decimal   @db.Decimal(15, 2)
+  comment          String?   @db.Text
+  created_at       DateTime  @default(now()) @db.Timestamp(0)
+  transaction_date DateTime? @db.Date
+  ones             Int?      @default(0)
+  fives            Int?      @default(0)
+  tens             Int?      @default(0)
+  twenties         Int?      @default(0)
+  forties          Int?      @default(0)
+  fifties          Int?      @default(0)
+  hundreds         Int?      @default(0)
+  twoHundreds      Int?      @default(0)
+  fiveHundreds     Int?      @default(0)
+  thousands        Int?      @default(0)
+  vault            vault     @relation(fields: [vault_id], references: [id], onUpdate: Restrict, map: "vault_update_ibfk_1")
+  clients          clients?  @relation(fields: [client_id], references: [id], onUpdate: Restrict, map: "vault_update_ibfk_2")
+  branches         branches? @relation(fields: [branch_id], references: [id], onUpdate: Restrict, map: "vault_update_ibfk_3")
+  teams            teams?    @relation(fields: [team_id], references: [id], onUpdate: Restrict, map: "vault_update_ibfk_4")
+
+  @@index([branch_id], map: "branch_id")
+  @@index([client_id], map: "client_id")
+  @@index([team_id], map: "team_id")
+  @@index([vault_id], map: "vault_id")
+}
+
+model vault_users {
+  id         Int              @id @default(autoincrement())
+  username   String           @unique(map: "username") @db.VarChar(50)
+  password   String           @db.VarChar(255)
+  email      String           @unique(map: "email") @db.VarChar(100)
+  role       vault_users_role @default(user)
+  created_at DateTime         @default(now())
+  updated_at DateTime         @default(now())
 }
 
 enum Priority {
@@ -393,4 +590,19 @@ enum delivery_completion_status {
   in_progress
   completed
   cancelled
+}
+
+enum client_update_type {
+  credit
+  debit
+}
+
+enum vault_users_role {
+  admin
+  user
+}
+
+enum cash_counts_status {
+  pending
+  received
 }
