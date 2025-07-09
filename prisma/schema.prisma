@@ -9,7 +9,7 @@ datasource db {
 
 model Request {
   id                  Int                  @id @default(autoincrement())
-  userId              Int                  @map("user_id")
+  userId              Int?                 @map("user_id")
   userName            String               @map("user_name") @db.VarChar(255)
   serviceTypeId       Int                  @map("service_type_id")
   price               Decimal              @db.Decimal(11, 2)
@@ -30,6 +30,7 @@ model Request {
   longitude           Float?
   branch_id           Int?
   sealNumberId        Int?
+  atm_cash_counts     atm_cash_counts[]
   atm_counters        atm_counters[]
   cash_counts         cash_counts[]
   cash_processing     cash_processing[]
@@ -37,7 +38,7 @@ model Request {
   delivery_completion delivery_completion?
   atms                atms?                @relation(fields: [atm_id], references: [id], onUpdate: Restrict, map: "fk_requests_atm_id")
   branches            branches?            @relation(fields: [branch_id], references: [id])
-  user                Staff                @relation("UserRequests", fields: [userId], references: [id], onUpdate: Restrict, map: "requests_ibfk_1")
+  user                Staff?               @relation("UserRequests", fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "requests_ibfk_1")
   ServiceType         ServiceType          @relation(fields: [serviceTypeId], references: [id], onUpdate: Restrict, map: "requests_ibfk_2")
   seals               seals?               @relation(fields: [sealNumberId], references: [id])
   staff               Staff[]              @relation("RequestToStaff")
@@ -51,7 +52,6 @@ model Request {
   @@index([myStatus, staff_id], map: "requests_myStatus_staff_id_fkey")
   @@index([myStatus, createdAt], map: "requests_myStatus_createdAt_fkey")
   @@map("requests")
-  atm_cash_counts atm_cash_counts[]
 }
 
 model ServiceType {
@@ -81,6 +81,7 @@ model Staff {
   created_at          DateTime?
   assignedTeamMembers Team_assignment[] @relation("StaffToTeamMembers")
   assignedTo          Team_assignment[] @relation("TeamMemberToStaff")
+  atm_cash_counts     atm_cash_counts[]
   atm_counters        atm_counters[]
   cash_counts         cash_counts[]
   CrewLocation        CrewLocation[]
@@ -92,7 +93,6 @@ model Staff {
   requests            Request[]         @relation("RequestToStaff")
 
   @@map("staff")
-  atm_cash_counts atm_cash_counts[]
 }
 
 model Team_assignment {
@@ -135,10 +135,12 @@ model users {
 model branches {
   id               Int                @id @default(autoincrement())
   client_id        Int
+  role_id          Int
   name             String             @db.VarChar(255)
   address          String?            @db.Text
   phone            String?            @db.VarChar(20)
   email            String?            @db.VarChar(255)
+  password         String             @db.VarChar(200)
   contact_person   String?            @db.VarChar(100)
   created_at       DateTime           @default(now()) @db.Timestamp(0)
   updated_at       DateTime           @default(now()) @db.Timestamp(0)
@@ -253,7 +255,8 @@ model notices {
   content    String   @db.Text
   created_at DateTime @default(now()) @db.Timestamp(0)
   updated_at DateTime @default(now()) @db.Timestamp(0)
-  created_by Int
+  created_by Int?
+  status     Int
 }
 
 model roles {

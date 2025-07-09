@@ -1,94 +1,177 @@
 const prisma = require('../config/db');
+const { validationResult } = require('express-validator');
 
 // Get all notices
-exports.getAllNotices = async (req, res) => {
+exports.getAllNotices = async (req, res, next) => {
   try {
     const notices = await prisma.notices.findMany({
       orderBy: {
         created_at: 'desc'
       }
     });
-    res.json(notices);
+    res.json({
+      success: true,
+      data: notices
+    });
   } catch (error) {
     console.error('Error fetching notices:', error);
-    res.status(500).json({ error: 'Failed to fetch notices' });
+    next(error);
   }
 };
 
 // Get a single notice
-exports.getNotice = async (req, res) => {
+exports.getNotice = async (req, res, next) => {
   try {
     const { id } = req.params;
+    
+    if (!id || isNaN(parseInt(id))) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Valid notice ID is required' 
+      });
+    }
+    
     const notice = await prisma.notices.findUnique({
       where: { id: parseInt(id) }
     });
     
     if (!notice) {
-      return res.status(404).json({ error: 'Notice not found' });
+      return res.status(404).json({ 
+        success: false,
+        message: 'Notice not found' 
+      });
     }
     
-    res.json(notice);
+    res.json({
+      success: true,
+      data: notice
+    });
   } catch (error) {
     console.error('Error fetching notice:', error);
-    res.status(500).json({ error: 'Failed to fetch notice' });
+    next(error);
   }
 };
 
 // Create a new notice
-exports.createNotice = async (req, res) => {
+exports.createNotice = async (req, res, next) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        success: false,
+        errors: errors.array() 
+      });
+    }
+
     const { title, content } = req.body;
-    const userId = req.user.id; // Assuming user info is attached to req by auth middleware
+    const userId = req.user.userId; // Fixed: use userId from JWT payload
     
     const notice = await prisma.notices.create({
       data: {
-        title,
-        content,
+        title: title.trim(),
+        content: content.trim(),
         created_by: userId
       }
     });
     
-    res.status(201).json(notice);
+    res.status(201).json({
+      success: true,
+      message: 'Notice created successfully',
+      data: notice
+    });
   } catch (error) {
     console.error('Error creating notice:', error);
-    res.status(500).json({ error: 'Failed to create notice' });
+    next(error);
   }
 };
 
 // Update a notice
-exports.updateNotice = async (req, res) => {
+exports.updateNotice = async (req, res, next) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        success: false,
+        errors: errors.array() 
+      });
+    }
+
     const { id } = req.params;
     const { title, content } = req.body;
+    
+    if (!id || isNaN(parseInt(id))) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Valid notice ID is required' 
+      });
+    }
+    
+    // Check if notice exists
+    const existingNotice = await prisma.notices.findUnique({
+      where: { id: parseInt(id) }
+    });
+    
+    if (!existingNotice) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Notice not found' 
+      });
+    }
     
     const notice = await prisma.notices.update({
       where: { id: parseInt(id) },
       data: {
-        title,
-        content,
+        title: title.trim(),
+        content: content.trim(),
         updated_at: new Date()
       }
     });
     
-    res.json(notice);
+    res.json({
+      success: true,
+      message: 'Notice updated successfully',
+      data: notice
+    });
   } catch (error) {
     console.error('Error updating notice:', error);
-    res.status(500).json({ error: 'Failed to update notice' });
+    next(error);
   }
 };
 
 // Delete a notice
-exports.deleteNotice = async (req, res) => {
+exports.deleteNotice = async (req, res, next) => {
   try {
     const { id } = req.params;
+    
+    if (!id || isNaN(parseInt(id))) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Valid notice ID is required' 
+      });
+    }
+    
+    // Check if notice exists
+    const existingNotice = await prisma.notices.findUnique({
+      where: { id: parseInt(id) }
+    });
+    
+    if (!existingNotice) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Notice not found' 
+      });
+    }
     
     await prisma.notices.delete({
       where: { id: parseInt(id) }
     });
     
-    res.status(204).send();
+    res.json({
+      success: true,
+      message: 'Notice deleted successfully'
+    });
   } catch (error) {
     console.error('Error deleting notice:', error);
-    res.status(500).json({ error: 'Failed to delete notice' });
+    next(error);
   }
 };
