@@ -1,5 +1,6 @@
 const { cloudinary } = require('../config/cloudinary');
 const streamifier = require('streamifier');
+const prisma = require('../config/db');
 
 const uploadImage = async (req, res) => {
   try {
@@ -72,6 +73,19 @@ const uploadImage = async (req, res) => {
 
     // Wait for the upload to complete
     const result = await uploadPromise;
+
+    // Update the staff table with the new photo URL
+    try {
+      await prisma.staff.update({
+        where: { id: req.user.userId },
+        data: { photoUrl: result.secure_url }
+      });
+      
+      console.log(`Updated photo URL for user ${req.user.userId}: ${result.secure_url}`);
+    } catch (dbError) {
+      console.error('Failed to update staff photo URL in database:', dbError);
+      // Don't fail the upload if database update fails
+    }
 
     // Return the secure URL
     return res.status(200).json({

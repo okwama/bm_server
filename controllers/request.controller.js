@@ -22,47 +22,27 @@ const getPendingRequests = async (req, res, next) => {
       userId: req.user.userId
     });
 
-    const whereCondition = {
-      myStatus: 1,
-      staff_id: req.user.userId
-    };
-
-    console.log('whereCondition:', JSON.stringify(whereCondition, null, 2));
-
-    const rawRequests = await prisma.request.findMany({
-      where: whereCondition,
-      select: {
-        id: true,
-        pickupLocation: true,
-        deliveryLocation: true,
-        priority: true,
-        pickupDate: true,
-        createdAt: true,
-        myStatus: true,
-        ServiceType: {
-          select: {
-            id: true,
-            name: true
-          }
-        },
-        staff: {
-          select: {
-            id: true,
-            name: true,
-            role: true
-          }
-        }
-      }
-    });
+    // Use stored procedure for immediate data retrieval
+    const rawRequests = await prisma.$queryRaw`
+      CALL GetPendingRequests(${req.user.userId})
+    `;
 
     console.log('Number of requests found:', rawRequests.length);
+    console.log('Raw requests data:', JSON.stringify(rawRequests, null, 2));
 
     const formattedRequests = rawRequests.map(request => ({
-      ...request,
-      pickupDate: formatDate(request.pickupDate),
-      createdAt: formatDate(request.createdAt),
-      ServiceType: request.ServiceType?.name || 'Not provided',
-      serviceTypeId: request.ServiceType?.id || 0,
+      id: request.f0, // id
+      pickupLocation: request.f1, // pickupLocation
+      deliveryLocation: request.f2, // deliveryLocation
+      priority: request.f3, // priority
+      pickupDate: formatDate(request.f4), // pickupDate
+      createdAt: formatDate(request.f5), // createdAt
+      myStatus: request.f6, // myStatus
+      serviceTypeId: request.f7, // serviceTypeId
+      ServiceType: request.f8 || 'Not provided', // ServiceType
+      staffId: request.f9, // staffId
+      staffName: request.f10, // staffName
+      staffRole: request.f11, // staffRole
     }));
 
     console.log('=== End getPendingRequests Debug Logs ===');
@@ -179,7 +159,7 @@ function calculateTotalAmount(cashCount) {
 }
 
 const confirmPickup = async (req, res, next) => {
-  req.setTimeout(60000); // 60 seconds
+  req.setTimeout(30000); // Reduced to 30 seconds
   
   try {
     const errors = validationResult(req);
@@ -199,7 +179,7 @@ const confirmPickup = async (req, res, next) => {
  
     console.log('Starting confirmPickup transaction for request:', requestId);
     
-    // Start transaction with timeout
+    // Optimized transaction with reduced timeout
     const result = await prisma.$transaction(async (tx) => {
       // Get request with service type and related data
       const request = await tx.request.findUnique({
@@ -363,29 +343,29 @@ const confirmPickup = async (req, res, next) => {
         atmCounter: atmCounterRecord
       };
     }, {
-      timeout: 45000, // 45 second transaction timeout
+      timeout: 25000, // Reduced to 25 second transaction timeout
       isolationLevel: 'ReadCommitted'
     });
     
     console.log('Transaction completed successfully');
  
-    // Send SSE notifications for real-time updates
+    // Send SSE notifications in background (non-blocking)
     try {
       const userId = req.user.userId;
       
-      // Send status change notification
-      sseService.sendRequestStatusChange(
-        userId, 
-        requestId, 
-        1, // old status (pending)
-        2, // new status (in_progress)
-        result.request
-      );
-      
-      // Force dashboard update (bypass cache for immediate effect)
-      await sseService.forceDashboardUpdate(userId);
-      
-      console.log(`📡 SSE notifications sent for request ${requestId} pickup confirmation`);
+      // Send notifications asynchronously
+      setImmediate(() => {
+        sseService.sendRequestStatusChange(
+          userId, 
+          requestId, 
+          1, // old status (pending)
+          2, // new status (in_progress)
+          result.request
+        );
+        
+        sseService.forceDashboardUpdate(userId);
+        console.log(`📡 SSE notifications sent for request ${requestId} pickup confirmation`);
+      });
     } catch (sseError) {
       console.error('❌ SSE notification error:', sseError);
       // Don't fail the request if SSE fails
@@ -765,64 +745,30 @@ const inProgressRequests = async (req, res, next) => {
     console.log('User making request:', req.user);
     const userId = req.user.userId;
 
-    // Fetch in-progress requests assigned to the user (myStatus = 2)
-    const whereCondition = {
-      myStatus: 2, // 2 = in_progress
-      staff_id: userId
-    };
-
-    console.log('Query conditions:', JSON.stringify(whereCondition, null, 2));
-
-    const requests = await prisma.request.findMany({
-      where: whereCondition,
-      include: {
-        ServiceType: {
-          select: {
-            name: true
-          }
-        },
-        branches: {
-          select: {
-            name: true,
-            clients: {
-              select: {
-                name: true
-              }
-            }
-          }
-        },
-        staff: {
-          select: {
-            id: true,
-            name: true,
-            role: true
-          }
-        }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
+    // Use stored procedure for immediate data retrieval
+    const requests = await prisma.$queryRaw`
+      CALL GetInProgressRequests(${userId})
+    `;
 
     console.log('Found requests:', requests.length);
 
     const formattedRequests = requests.map(request => ({
-      id: request.id,
-      pickupLocation: request.pickupLocation,
-      deliveryLocation: request.deliveryLocation,
-      status: request.myStatus, // Use myStatus as the status
-      priority: request.priority,
-      myStatus: request.myStatus,
-      branch: request.branches ? {
-        name: request.branches.name,
-        client: request.branches.clients?.name
+      id: request.f0, // id
+      pickupLocation: request.f1, // pickupLocation
+      deliveryLocation: request.f2, // deliveryLocation
+      priority: request.f3, // priority
+      myStatus: request.f4, // myStatus
+      ServiceType: request.f5 || 'Not provided', // ServiceType
+      branch: request.f6 ? { // branchName
+        name: request.f6,
+        client: request.f7 // clientName
       } : null,
-      serviceType: request.ServiceType?.name,
-      assignedStaff: request.staff?.map(staff => ({
-        id: staff.id,
-        name: staff.name,
-        role: staff.role
-      }))
+      serviceTypeId: 0, // Default value
+      assignedStaff: [{
+        id: request.f8, // staffId
+        name: request.f9, // staffName
+        role: request.f10 // staffRole
+      }]
     }));
 
     res.json(formattedRequests);
@@ -838,75 +784,31 @@ const completedRequests = async (req, res, next) => {
     console.log('User making request:', req.user);
     const userId = req.user.userId;
 
-    // Get today's date at start of day and end of day
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    // Fetch completed requests assigned to the user (myStatus = 3) for current day
-    const whereCondition = {
-      myStatus: 3, // 3 = completed
-      staff_id: userId,
-      updatedAt: {
-        gte: today,
-        lt: tomorrow
-      }
-    };
-
-    console.log('Query conditions:', JSON.stringify(whereCondition, null, 2));
-
-    const requests = await prisma.request.findMany({
-      where: whereCondition,
-      include: {
-        ServiceType: {
-          select: {
-            name: true
-          }
-        },
-        branches: {
-          select: {
-            name: true,
-            clients: {
-              select: {
-                name: true
-              }
-            }
-          }
-        },
-        staff: {
-          select: {
-            id: true,
-            name: true,
-            role: true
-          }
-        }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
+    // Use stored procedure for immediate data retrieval
+    const requests = await prisma.$queryRaw`
+      CALL GetCompletedRequests(${userId})
+    `;
 
     console.log('Found requests:', requests.length);
 
     const formattedRequests = requests.map(request => ({
-      id: request.id,
-      pickupLocation: request.pickupLocation,
-      deliveryLocation: request.deliveryLocation,
-      status: request.myStatus, // Use myStatus as the status
-      priority: request.priority,
-      myStatus: request.myStatus,
-      completedAt: request.updatedAt, // Add completion timestamp
-      branch: request.branches ? {
-        name: request.branches.name,
-        client: request.branches.clients?.name
+      id: request.f0, // id
+      pickupLocation: request.f1, // pickupLocation
+      deliveryLocation: request.f2, // deliveryLocation
+      priority: request.f3, // priority
+      myStatus: request.f4, // myStatus
+      completedAt: request.f5, // completedAt
+      ServiceType: request.f6 || 'Not provided', // ServiceType
+      branch: request.f7 ? { // branchName
+        name: request.f7,
+        client: request.f8 // clientName
       } : null,
-      serviceType: request.ServiceType?.name,
-      assignedStaff: request.staff?.map(staff => ({
-        id: staff.id,
-        name: staff.name,
-        role: staff.role
-      }))
+      serviceTypeId: 0, // Default value
+      assignedStaff: [{
+        id: request.f9, // staffId
+        name: request.f10, // staffName
+        role: request.f11 // staffRole
+      }]
     }));
 
     res.json(formattedRequests);

@@ -85,6 +85,7 @@ model Staff {
   atm_counters        atm_counters[]
   cash_counts         cash_counts[]
   CrewLocation        CrewLocation[]
+  inquiries           inquiries[]
   createdRequests     Request[]         @relation("UserRequests")
   sos                 sos[]             @relation("GuardSOS")
   team_members        team_members[]
@@ -139,6 +140,7 @@ model branches {
   name             String             @db.VarChar(255)
   address          String?            @db.Text
   phone            String?            @db.VarChar(20)
+  contact_number   String             @db.VarChar(20)
   email            String?            @db.VarChar(255)
   password         String             @db.VarChar(200)
   contact_person   String?            @db.VarChar(100)
@@ -146,6 +148,7 @@ model branches {
   updated_at       DateTime           @default(now()) @db.Timestamp(0)
   clients          clients            @relation(fields: [client_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "branches_ibfk_1")
   client_update    client_update[]
+  inquiries        inquiries[]
   requests         Request[]
   service_requests service_requests[]
   vault_update     vault_update[]
@@ -569,6 +572,38 @@ model vault_users {
   updated_at DateTime         @default(now())
 }
 
+model inquiries {
+  id           Int                     @id @default(autoincrement())
+  user_id      Int
+  subject      String                  @db.VarChar(255)
+  message      String                  @db.Text
+  inquiry_type inquiries_inquiry_type? @default(general)
+  status       inquiries_status?       @default(pending)
+  priority     inquiries_priority?     @default(medium)
+  assigned_to  Int?
+  response     String?                 @db.Text
+  created_at   DateTime                @default(now()) @db.Timestamp(0)
+  updated_at   DateTime                @default(now()) @db.Timestamp(0)
+  branches     branches                @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "inquiries_ibfk_1")
+  staff        Staff?                  @relation(fields: [assigned_to], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "inquiries_ibfk_2")
+
+  @@index([assigned_to], map: "assigned_to")
+  @@index([user_id], map: "user_id")
+}
+
+model inventory_transactions {
+  id            Int      @id @default(autoincrement())
+  product_id    Int
+  reference     String?  @db.VarChar(255)
+  amount_in     Decimal? @default(0.00) @db.Decimal(12, 2)
+  amount_out    Decimal? @default(0.00) @db.Decimal(12, 2)
+  balance       Decimal? @default(0.00) @db.Decimal(12, 2)
+  date_received DateTime @db.DateTime(0)
+  store_id      Int
+  staff_id      Int
+  created_at    DateTime @default(now()) @db.Timestamp(0)
+}
+
 enum Priority {
   low
   medium
@@ -614,4 +649,25 @@ enum vault_users_role {
 enum cash_counts_status {
   pending
   received
+}
+
+enum inquiries_inquiry_type {
+  general
+  service
+  billing
+  support
+  other
+}
+
+enum inquiries_status {
+  pending
+  in_progress
+  resolved
+  closed
+}
+
+enum inquiries_priority {
+  low
+  medium
+  high
 }
